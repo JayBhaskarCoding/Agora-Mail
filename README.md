@@ -68,7 +68,9 @@ src/
     Brand.jsx           wordmark, logo mark, avatars
     Icons.jsx           stroke icon set
   lib/format.js         addresses, dates, snippets, escaping
-  lib/mailTemplate.js   branded HTML document for every outgoing message
+  lib/mailTemplate.js   message fragment + text twin for the sender worker
+worker/
+  agora-mail-sender.js  Cloudflare Worker: wraps the fragment, sends via Resend
 ```
 
 ## Behaviour notes
@@ -85,14 +87,20 @@ src/
   of the message rather than to duplicated wrapper copy. It resets on cancel and on send.
 - **Reply quotes** carry `data-reply-quote="true"` on the wrapper, so the worker can drop
   the old thread when it builds the inbox snippet — a reply previews the reply.
-- Outgoing mail uses `lib/mailTemplate.js`: one 600px white card with a rounded edge, a
-  40 × 3px violet → blue rule as its only ornament, and 16px/1.75 copy at `#33383F`. It is
-  built from tables and inline styles so it survives Gmail, Apple Mail and Outlook — the
-  gradient is drawn as three solid cells because Outlook ignores `linear-gradient`, and an
-  `mso` conditional swaps in Arial. The sender worker supplies the Agora masthead (logo +
-  `agora.` + hairline) and the "Sent securely via Agora Mail" footer, so the template adds
-  no second lockup, footer or tagline. There is no hidden preheader either: clients prepend
-  it to the inbox snippet, which made short messages look duplicated. Replies keep the
-  original HTML with scripts and inline handlers stripped, attributed by display name
-  ("On 20 Oct, Ananya Rao wrote:") rather than by raw mailbox.
+- **Who owns what.** `lib/mailTemplate.js` renders only the message fragment — paragraphs
+  and, for a reply, the quoted original — styled for the dark card it will sit in. The
+  Cloudflare worker (`worker/agora-mail-sender.js`, deployed separately) owns the envelope:
+  the 600px dark Agora card, the gradient edge, the logo and `agora.` wordmark, the footer
+  and the hidden preheader. The client therefore sends a fragment, not a document; sending
+  a whole document previously meant a white card nested inside the dark one, duplicate
+  `<head>`/`<body>` tags, and the client's `mso` stylesheet leaking into the plain-text part.
+- **The worker** also honours the client's `text` part (deriving one properly when absent,
+  with no CSS, comments or hidden preheaders), builds the preheader from the body *before*
+  `data-reply-quote` with the subject de-duplicated and entities decoded, escapes the
+  preview text, and stores the real body in the Sent row rather than the preview line.
+  `node .verify/worker-check.mjs` runs the handler against a fake Resend and Supabase —
+  53 assertions covering transport, shell structure, plain text, preheader, replies,
+  attachments and failure paths.
+- Replies quote the original with scripts and inline handlers stripped, attributed by
+  display name ("On 20 Oct, Ananya Rao wrote:") rather than by raw mailbox.
 - The mailbox polls every 10 seconds; the refresh button forces a pass.

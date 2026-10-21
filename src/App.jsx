@@ -9,7 +9,7 @@ import { BrandLockup } from './components/Brand.jsx';
 import Ambient from './components/Ambient.jsx';
 import { MenuIcon, PencilIcon } from './components/Icons.jsx';
 import { cleanSubject, extractEmailAddress } from './lib/format.js';
-import { buildOutgoingHtml, buildOutgoingText } from './lib/mailTemplate.js';
+import { buildMessageBody, buildMessageText } from './lib/mailTemplate.js';
 
 /* ============================================================
    Agora Mail — webmail for @agora.in.net
@@ -417,8 +417,10 @@ export default function AgoraMail() {
 
     try {
       const recipient = extractEmailAddress(to);
-      const finalHtml = buildOutgoingHtml({ body, replyingTo, subject, previewText });
-      const finalText = buildOutgoingText({ body, replyingTo });
+      /* The worker owns the envelope (card, brand row, footer, preheader);
+         this is just the message it wraps. */
+      const finalHtml = buildMessageBody({ body, replyingTo });
+      const finalText = buildMessageText({ body, replyingTo });
 
       const response = await fetch(MAIL_SENDER_URL, {
         method: 'POST',
