@@ -43,7 +43,7 @@ export default function WebmailDashboard() {
     e.preventDefault();
     setSending(true);
     try {
-      const res = await fetch('/api/send-email', {
+      const res = await fetch('agora-mail-sender.jayvardhanbhaskar123.workers.dev', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
