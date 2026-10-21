@@ -45,6 +45,9 @@ without touching markup.
 - **Assets**: the original mark is served from `public/agora-logo.svg` (the same artwork
   the website uses). Fonts are self-hosted through `@fontsource`, so the mailbox makes no
   third-party requests.
+- **Sign-in**: one centred card — lockup, service name and domain, form, then the
+  provisioning note with the access request (`mail@agora.in.net` opens a Gmail compose
+  window, so no desktop mail client is required).
 
 ## Structure
 

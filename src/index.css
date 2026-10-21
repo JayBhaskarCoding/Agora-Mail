@@ -298,49 +298,6 @@
     color: var(--text-faint);
   }
 
-  .eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.75rem;
-    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.66rem;
-    font-weight: 500;
-    letter-spacing: 0.26em;
-    text-transform: uppercase;
-    color: var(--accent);
-    opacity: 0.92;
-  }
-
-  .eyebrow::before {
-    content: '';
-    width: 1.9rem;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, var(--accent-deep));
-  }
-
-  .eyebrow__dot {
-    width: 6px;
-    height: 6px;
-    flex: none;
-    border-radius: 9999px;
-    background: var(--accent);
-    box-shadow: 0 0 12px rgb(var(--accent-rgb) / 0.9);
-    animation: pulse-dot 2.6s ease-in-out infinite;
-  }
-
-  .display {
-    font-size: clamp(2.5rem, 6.2vw, 4.15rem);
-    font-weight: 800;
-    letter-spacing: -0.045em;
-    line-height: 0.98;
-    color: var(--text-bright);
-    text-wrap: balance;
-  }
-
-  .display .accent {
-    color: var(--accent);
-  }
-
   .text-link {
     color: var(--lavender);
     text-decoration: underline;
@@ -979,6 +936,10 @@
     overflow: hidden;
   }
 
+  .login-card .field-control {
+    background: var(--field-bg);
+  }
+
   .login-card::before {
     content: '';
     position: absolute;
@@ -1044,19 +1005,6 @@
 /* ============================================================
    Motion
    ============================================================ */
-
-@keyframes pulse-dot {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-
-  50% {
-    opacity: 0.45;
-    transform: scale(0.8);
-  }
-}
 
 @keyframes shimmer {
   0% {

@@ -13,7 +13,7 @@ import { formatFullTime, parseAddress } from '../lib/format.js';
 
 function ReaderEmpty({ onCompose }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+    <div className="flex h-full w-full flex-col items-center justify-center px-6 text-center">
       <div className="relative flex flex-col items-center">
         <span
           className="pointer-events-none absolute -inset-x-16 -inset-y-10 -z-10 rounded-full bg-brand/10 blur-3xl"
@@ -55,8 +55,8 @@ export default function MailReader({
   const inTrash = folder === 'trash';
 
   return (
-    <div key={email.id} className="scroll-area h-full animate-fade-in overflow-y-auto">
-      <article className="mx-auto w-full max-w-3xl px-5 pb-12 pt-4 md:px-8 md:pt-8">
+    <div key={email.id} className="scroll-area h-full w-full animate-fade-in overflow-y-auto">
+      <article className="mx-auto w-full max-w-3xl px-5 pb-12 pt-4 sm:px-8 md:pt-8">
         <div className="flex items-center gap-2 md:hidden">
           <button
             type="button"
