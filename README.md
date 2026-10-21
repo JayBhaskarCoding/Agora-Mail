@@ -46,8 +46,8 @@ without touching markup.
   the website uses). Fonts are self-hosted through `@fontsource`, so the mailbox makes no
   third-party requests.
 - **Sign-in**: one centred card — lockup, service name and domain, form, then the
-  provisioning note with the access request (`mail@agora.in.net` opens a Gmail compose
-  window, so no desktop mail client is required).
+  provisioning note with the access request ("Need access?" opens a Gmail compose window
+  to `mail@agora.in.net`, so no desktop mail client is required).
 
 ## Structure
 

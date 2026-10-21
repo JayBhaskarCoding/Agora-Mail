@@ -162,17 +162,6 @@ export default function LoginScreen({
                   Need access?
                 </a>
               </p>
-              <p className="mt-1 text-xs leading-relaxed text-faint">
-                Write to{' '}
-                <a
-                  href={CONTACT_LINK}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-link font-medium"
-                >
-                  {CONTACT_ADDRESS}
-                </a>
-              </p>
             </div>
           </section>
         </div>
