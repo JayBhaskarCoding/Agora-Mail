@@ -200,9 +200,17 @@ export default function WebmailDashboard() {
     }
   };
 
+  // Helper to extract clean email address out of "Name <email@domain.com>"
+  const extractEmailAddress = (str) => {
+    if (!str) return '';
+    const match = str.match(/<([^>]+)>$/);
+    return match ? match[1] : str.trim();
+  };
+
   // 6. Handle Reply action cleanly
   const handleReply = (email) => {
-    setTo(email.from_address);
+    const cleanAddress = extractEmailAddress(email.from_address);
+    setTo(cleanAddress);
     setSubject(email.subject?.startsWith('Re:') ? email.subject : `Re: ${email.subject || ''}`);
     setBody('');
     setReplyingTo(email);
@@ -263,7 +271,7 @@ export default function WebmailDashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          to,
+          to: extractEmailAddress(to), // ensure clean email is sent
           subject,
           html: finalHtml,
           customFrom: 'mail@agora.in.net',
@@ -560,7 +568,7 @@ export default function WebmailDashboard() {
                 <div>
                   <label className="block text-xs font-medium text-gray-400 mb-1.5">To</label>
                   <input 
-                    type="email" 
+                    type="text" 
                     required 
                     value={to} 
                     onChange={(e) => setTo(e.target.value)} 
