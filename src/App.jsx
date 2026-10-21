@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
-const SUPABASE_URL = 'https://sepvcatdqrnzjuvxabzh.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlcHZjYXRkcXJuemp1dnhhYnpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2MDEzMzIsImV4cCI6MjEwNjE3NzMzMn0.wY2PlB5M66AOG-xM3j0d6fD5OSNBUZYzEcbNNIlHBHE';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export default function WebmailDashboard() {
   // Auth state
