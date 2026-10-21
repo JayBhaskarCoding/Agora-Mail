@@ -2,12 +2,45 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="https://fav.farm/✉️" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Agora Webmail</title>
+    <title>Agora Mail — webmail for @agora.in.net</title>
+    <meta
+      name="description"
+      content="Agora Mail is the ad-free webmail for @agora.in.net — read, reply and send without an algorithm in the way."
+    />
+    <meta name="robots" content="noindex, nofollow" />
+
+    <!-- Browser chrome colour — the OS picks the matching one. -->
+    <meta name="theme-color" content="#0A0B0E" />
+    <meta name="theme-color" content="#0A0B0E" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#F7F9FC" media="(prefers-color-scheme: light)" />
+
+    <!-- Open Graph / Twitter -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Agora Mail" />
+    <meta
+      property="og:description"
+      content="The ad-free inbox for @agora.in.net — read, reply and send."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Agora Mail" />
+    <meta
+      name="twitter:description"
+      content="The ad-free inbox for @agora.in.net — read, reply and send."
+    />
+
+    <link rel="icon" type="image/svg+xml" href="/agora-logo.svg" />
+
+    <!-- Inter + JetBrains Mono are self-hosted via @fontsource in src/main.jsx:
+         no third-party request is made by the mailbox. -->
   </head>
-  <body class="bg-gray-950 text-gray-100 antialiased">
+  <body>
     <div id="root"></div>
+    <noscript>
+      <div style="max-width: 32rem; margin: 4rem auto; padding: 0 1.25rem; font-family: system-ui, sans-serif; line-height: 1.6">
+        <strong>Agora Mail</strong> needs JavaScript to sign in and display your mailbox.
+      </div>
+    </noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
