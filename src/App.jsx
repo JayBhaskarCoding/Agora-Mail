@@ -415,12 +415,7 @@ export default function AgoraMail() {
 
     try {
       const recipient = extractEmailAddress(to);
-      const finalHtml = buildOutgoingHtml({
-        body,
-        replyingTo,
-        subject,
-        toAddress: recipient,
-      });
+      const finalHtml = buildOutgoingHtml({ body, replyingTo, subject });
 
       const response = await fetch(MAIL_SENDER_URL, {
         method: 'POST',
