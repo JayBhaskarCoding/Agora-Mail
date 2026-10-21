@@ -7,7 +7,8 @@ import ComposeModal from './components/ComposeModal.jsx';
 import Toasts, { useToasts } from './components/Toasts.jsx';
 import { BrandLockup } from './components/Brand.jsx';
 import { MenuIcon, PencilIcon } from './components/Icons.jsx';
-import { escapeHtml, extractEmailAddress } from './lib/format.js';
+import { extractEmailAddress } from './lib/format.js';
+import { buildOutgoingHtml } from './lib/mailTemplate.js';
 
 /* ============================================================
    Agora Mail — webmail for @agora.in.net
@@ -413,28 +414,19 @@ export default function AgoraMail() {
     setSendError('');
 
     try {
-      const plainBody = escapeHtml(body).replace(/\n/g, '<br/>');
-      let finalHtml =
-        '<div style="font-family: Inter, Arial, sans-serif; font-size: 15px; line-height: 1.7; color: #1A1E23;">' +
-        `<p style="margin: 0 0 14px;">${plainBody || '&nbsp;'}</p>`;
-
-      if (replyingTo) {
-        finalHtml += `
-          <div style="border-left: 3px solid #8B5CF6; padding-left: 14px; margin-top: 18px; color: #4B5563; font-size: 13px;">
-            <p style="margin: 0 0 8px; font-weight: 600; color: #6B7280;">
-              On ${escapeHtml(new Date(replyingTo.created_at).toLocaleString())}, ${escapeHtml(replyingTo.from_address || '')} wrote:
-            </p>
-            <div>${replyingTo.html_body || escapeHtml(replyingTo.text_body || '').replace(/\n/g, '<br/>')}</div>
-          </div>`;
-      }
-
-      finalHtml += '</div>';
+      const recipient = extractEmailAddress(to);
+      const finalHtml = buildOutgoingHtml({
+        body,
+        replyingTo,
+        subject,
+        toAddress: recipient,
+      });
 
       const response = await fetch(MAIL_SENDER_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          to: extractEmailAddress(to),
+          to: recipient,
           subject,
           html: finalHtml,
           customFrom: SENDER_ADDRESS,

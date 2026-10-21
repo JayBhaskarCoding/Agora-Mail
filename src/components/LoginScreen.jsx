@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LogoMark, Wordmark } from './Brand.jsx';
+import { AppLogo, Wordmark } from './Brand.jsx';
 import { AlertCircleIcon, EyeIcon, EyeOffIcon, MailIcon, Spinner } from './Icons.jsx';
 
 /* ============================================================
@@ -39,7 +39,7 @@ export default function LoginScreen({
       <main className="relative z-10 flex w-full flex-1 items-center justify-center px-5 py-10">
         <div className="w-full max-w-[25rem] animate-rise-in">
           <header className="flex flex-col items-center text-center">
-            <LogoMark className="h-12 w-12" />
+            <AppLogo className="h-12 w-12" />
             <div className="mt-4 flex items-baseline gap-1.5">
               <Wordmark className="text-[2.05rem]" />
               <span className="brand-chip">mail</span>
