@@ -43,6 +43,11 @@ function renderText(value, { quiet = false } = {}) {
   const size = quiet ? 14 : 15;
   const colour = quiet ? MAIL_BRAND.muted : MAIL_BRAND.body;
 
+  /* Paragraphs are joined with real newlines. They are invisible in HTML —
+     whitespace between block elements is ignored — but they survive the
+     sender worker's tag-stripping, which is how it builds the text/plain
+     part. Without them every paragraph runs together in notification
+     previews and "show original". */
   return paragraphs
     .map(
       (paragraph, index) =>
@@ -51,7 +56,7 @@ function renderText(value, { quiet = false } = {}) {
         `color:${colour};word-break:break-word;">` +
         `${escapeHtml(paragraph).replace(/\n/g, '<br />')}</p>`,
     )
-    .join('');
+    .join('\n\n');
 }
 
 /**
@@ -95,7 +100,7 @@ function quoteBlock(replyingTo) {
     ? sanitizeQuote(replyingTo.html_body)
     : renderText(replyingTo.text_body, { quiet: true });
 
-  return `<div data-reply-quote="true" style="margin:24px 0 0;padding:2px 0 0 14px;border-left:2px solid ${MAIL_BRAND.quoteRule};">
+  return `\n\n<div data-reply-quote="true" style="margin:24px 0 0;padding:2px 0 0 14px;border-left:2px solid ${MAIL_BRAND.quoteRule};">
   <p style="margin:0 0 10px;font-family:${FONT_SANS};font-size:12px;line-height:1.6;color:${MAIL_BRAND.faint};">On ${escapeHtml(stamp)}, ${escapeHtml(quoteAuthor(replyingTo.from_address))} wrote:</p>
   <div style="font-family:${FONT_SANS};font-size:14px;line-height:1.7;color:${MAIL_BRAND.muted};">${original}</div>
 </div>`;

@@ -87,6 +87,13 @@ worker/
   of the message rather than to duplicated wrapper copy. It resets on cancel and on send.
 - **Reply quotes** carry `data-reply-quote="true"` on the wrapper, so the worker can drop
   the old thread when it builds the inbox snippet — a reply previews the reply.
+- **Two workers, one contract.** `test/deployed-worker.mjs` is the sender worker exactly as
+  it runs on Cloudflare; `test/mail-pipeline.test.mjs` (`npm test`) drives both it and the
+  in-repo worker with the real fragment and asserts on what Resend would send. The frontend
+  is verified against the *deployed* worker, so interface work never depends on a deploy;
+  `worker/agora-mail-sender.js` is an optional upgrade that additionally honours the
+  client's `text` part, escapes the preview text, and stores the body in the Sent row
+  instead of the preview line.
 - **Who owns what.** `lib/mailTemplate.js` renders only the message fragment — paragraphs
   and, for a reply, the quoted original — styled for the dark card it will sit in. The
   Cloudflare worker (`worker/agora-mail-sender.js`, deployed separately) owns the envelope:
