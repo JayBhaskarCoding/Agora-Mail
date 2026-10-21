@@ -1,0 +1,214 @@
+import React, { useState, useEffect } from 'react';
+
+// Replace with your Supabase Public Anon Key and URL
+const SUPABASE_URL = 'https://sepvcatdqrnzjuvxabzh.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlcHZjYXRkcXJuemp1dnhhYnpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2MDEzMzIsImV4cCI6MjEwNjE3NzMzMn0.wY2PlB5M66AOG-xM3j0d6fD5OSNBUZYzEcbNNIlHBHE';
+
+export default function WebmailDashboard() {
+  const [emails, setEmails] = useState([]);
+  const [selectedEmail, setSelectedEmail] = useState(null);
+  const [activeFolder, setActiveFolder] = useState('inbox');
+  const [isComposeOpen, setIsComposeOpen] = useState(false);
+  
+  // Compose form state
+  const [to, setTo] = useState('');
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [sending, setSending] = useState(false);
+
+  // 1. Fetch emails from Supabase
+  const fetchEmails = async () => {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/emails?folder=eq.${activeFolder}&order=created_at.desc`, {
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+        }
+      });
+      const data = await res.json();
+      if (Array.isArray(data)) setEmails(data);
+    } catch (err) {
+      console.error('Error fetching emails:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchEmails();
+    const interval = setInterval(fetchEmails, 10000); // Poll every 10s for new mail
+    return () => clearInterval(interval);
+  }, [activeFolder]);
+
+  // 2. Send email via Resend (via your backend endpoint or serverless function)
+  const handleSendEmail = async (e) => {
+    e.preventDefault();
+    setSending(true);
+    try {
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to,
+          subject,
+          html: `<p>${body.replace(/\n/g, '<br/>')}</p>`,
+          customFrom: 'mail@agora.in.net'
+        })
+      });
+
+      if (res.ok) {
+        alert('Email sent successfully!');
+        setIsComposeOpen(false);
+        setTo('');
+        setSubject('');
+        setBody('');
+        setActiveFolder('sent');
+        fetchEmails();
+      } else {
+        const errData = await res.json();
+        alert(`Failed to send: ${errData.error}`);
+      }
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-900 text-gray-100 font-sans">
+      {/* Sidebar */}
+      <div className="w-64 bg-gray-950 border-r border-gray-800 flex flex-col p-4">
+        <h1 className="text-lg font-bold text-blue-400 mb-6">agora.in.net Mail</h1>
+        <button 
+          onClick={() => setIsComposeOpen(true)}
+          className="bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded-lg mb-6 transition"
+        >
+          + Compose
+        </button>
+        <nav className="space-y-1">
+          <button 
+            onClick={() => { setActiveFolder('inbox'); setSelectedEmail(null); }}
+            className={`w-full text-left px-3 py-2 rounded-lg transition ${activeFolder === 'inbox' ? 'bg-gray-800 text-blue-400' : 'hover:bg-gray-900'}`}
+          >
+            📥 Inbox
+          </button>
+          <button 
+            onClick={() => { setActiveFolder('sent'); setSelectedEmail(null); }}
+            className={`w-full text-left px-3 py-2 rounded-lg transition ${activeFolder === 'sent' ? 'bg-gray-800 text-blue-400' : 'hover:bg-gray-900'}`}
+          >
+            📤 Sent
+          </button>
+        </nav>
+      </div>
+
+      {/* Email List */}
+      <div className="w-96 border-r border-gray-800 flex flex-col bg-gray-900">
+        <div className="p-4 border-b border-gray-800 font-semibold capitalize text-gray-400">
+          {activeFolder} ({emails.length})
+        </div>
+        <div className="overflow-y-auto flex-1 divide-y divide-gray-800">
+          {emails.length === 0 ? (
+            <div className="p-6 text-center text-gray-500 text-sm">No emails found.</div>
+          ) : (
+            emails.map((email) => (
+              <div 
+                key={email.id} 
+                onClick={() => setSelectedEmail(email)}
+                className={`p-4 cursor-pointer hover:bg-gray-800 transition ${selectedEmail?.id === email.id ? 'bg-gray-800' : ''}`}
+              >
+                <div className="text-xs text-gray-400 truncate mb-1">
+                  {activeFolder === 'inbox' ? email.from_address : `To: ${email.to_address}`}
+                </div>
+                <div className="font-medium text-sm text-gray-200 truncate">{email.subject || '(No Subject)'}</div>
+                <div className="text-xs text-gray-500 truncate mt-1">{email.text_body?.substring(0, 50)}...</div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Email Reader / Viewer */}
+      <div className="flex-1 flex flex-col bg-gray-950">
+        {selectedEmail ? (
+          <div className="p-8 overflow-y-auto flex-1">
+            <h2 className="text-xl font-bold mb-4">{selectedEmail.subject || '(No Subject)'}</h2>
+            <div className="text-sm text-gray-400 mb-6 pb-4 border-b border-gray-800 flex justify-between">
+              <div>
+                <p><span className="text-gray-500">From:</span> {selectedEmail.from_address}</p>
+                <p><span className="text-gray-500">To:</span> {selectedEmail.to_address}</p>
+              </div>
+              <div className="text-xs text-gray-500">
+                {new Date(selectedEmail.created_at).toLocaleString()}
+              </div>
+            </div>
+            <div className="prose prose-invert max-w-none text-gray-300">
+              {selectedEmail.html_body ? (
+                <div dangerouslySetInnerHTML={{ __html: selectedEmail.html_body }} />
+              ) : (
+                <p className="whitespace-pre-wrap">{selectedEmail.text_body}</p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-gray-600">
+            Select an email to read
+          </div>
+        )}
+      </div>
+
+      {/* Compose Modal */}
+      {isComposeOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-gray-900 border border-gray-800 w-full max-w-lg rounded-xl p-6 shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-lg">New Message</h3>
+              <button onClick={() => setIsComposeOpen(false)} className="text-gray-400 hover:text-white">✕</button>
+            </div>
+            <form onSubmit={handleSendEmail} className="space-y-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">From</label>
+                <input type="text" disabled value="mail@agora.in.net" className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-400 cursor-not-allowed" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">To</label>
+                <input 
+                  type="email" 
+                  required 
+                  value={to} 
+                  onChange={(e) => setTo(e.target.value)} 
+                  placeholder="recipient@example.com" 
+                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" 
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Subject</label>
+                <input 
+                  type="text" 
+                  value={subject} 
+                  onChange={(e) => setSubject(e.target.value)} 
+                  placeholder="Subject line" 
+                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" 
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Message</label>
+                <textarea 
+                  rows="6" 
+                  value={body} 
+                  onChange={(e) => setBody(e.target.value)} 
+                  placeholder="Write your message here..." 
+                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" 
+                />
+              </div>
+              <div className="flex justify-end space-x-3 pt-2">
+                <button type="button" onClick={() => setIsComposeOpen(false)} className="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 rounded-lg">Cancel</button>
+                <button type="submit" disabled={sending} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 rounded-lg font-medium">
+                  {sending ? 'Sending...' : 'Send Email'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
