@@ -34,7 +34,11 @@ export default function LoginScreen({
 
   return (
     <div className="login-screen relative flex flex-col">
-      <div className="dot-grid" aria-hidden="true" />
+      {/* Orbit rings echoing the website hero, behind the glass card. */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+        <span className="login-orbit left-1/2 top-1/2 h-[34rem] w-[34rem] -translate-x-1/2 -translate-y-1/2" />
+        <span className="login-orbit left-1/2 top-1/2 h-[48rem] w-[48rem] -translate-x-1/2 -translate-y-1/2 opacity-60" />
+      </div>
 
       <main className="relative z-10 flex w-full flex-1 items-center justify-center px-5 py-10">
         <div className="w-full max-w-[25rem] animate-rise-in">
@@ -54,7 +58,7 @@ export default function LoginScreen({
             </p>
           </header>
 
-          <section className="panel login-card mt-6 p-6" aria-labelledby="login-title">
+          <section className="glass--strong glass-sheen login-card mt-7 p-6 sm:p-7" aria-labelledby="login-title">
             <h2 id="login-title" className="text-[0.95rem] font-semibold text-ink">
               Sign in
             </h2>

@@ -6,8 +6,9 @@ import MailReader from './components/MailReader.jsx';
 import ComposeModal from './components/ComposeModal.jsx';
 import Toasts, { useToasts } from './components/Toasts.jsx';
 import { BrandLockup } from './components/Brand.jsx';
+import Ambient from './components/Ambient.jsx';
 import { MenuIcon, PencilIcon } from './components/Icons.jsx';
-import { extractEmailAddress } from './lib/format.js';
+import { cleanSubject, extractEmailAddress } from './lib/format.js';
 import { buildOutgoingHtml } from './lib/mailTemplate.js';
 
 /* ============================================================
@@ -335,13 +336,9 @@ export default function AgoraMail() {
   const openCompose = ({ replyTo = null } = {}) => {
     setReplyingTo(replyTo);
     setTo(replyTo ? extractEmailAddress(replyTo.from_address) : '');
-    setSubject(
-      replyTo
-        ? /^re:/i.test(replyTo.subject || '')
-          ? replyTo.subject
-          : `Re: ${replyTo.subject || ''}`
-        : '',
-    );
+    /* Subjects are stored entity-encoded; decode before editing or sending. */
+    const decodedSubject = cleanSubject(replyTo?.subject || '');
+    setSubject(replyTo ? (/^re:/i.test(decodedSubject) ? decodedSubject : `Re: ${decodedSubject}`) : '');
     setBody('');
     setAttachments([]);
     setSendError('');
@@ -480,6 +477,7 @@ export default function AgoraMail() {
   if (!session) {
     return (
       <>
+        <Ambient />
         <LoginScreen
           email={loginEmail}
           password={loginPassword}
@@ -496,112 +494,116 @@ export default function AgoraMail() {
   }
 
   return (
-    <div className="app-shell flex flex-col overflow-hidden lg:flex-row">
-      <a className="skip-link" href="#mailbox">
-        Skip to mailbox
-      </a>
+    <>
+      <Ambient />
 
-      <Sidebar
-        open={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-        email={session.user?.email || ''}
-        activeFolder={activeFolder}
-        onFolderChange={changeFolder}
-        onCompose={() => openCompose()}
-        onLogout={() => handleLogout()}
-      />
+      <div className="app-shell flex flex-col overflow-hidden lg:flex-row">
+        <a className="skip-link" href="#mailbox">
+          Skip to mailbox
+        </a>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-2 border-b border-line/10 bg-canvas/70 px-3 py-2 backdrop-blur-xl lg:hidden">
-          <button
-            type="button"
-            onClick={() => setIsSidebarOpen(true)}
-            className="icon-btn"
-            aria-label="Open navigation"
-            aria-expanded={isSidebarOpen}
-            aria-controls="mailbox-sidebar"
-          >
-            <MenuIcon size={19} />
-          </button>
-
-          <div className="mx-auto">
-            <BrandLockup compact />
-          </div>
-
-          <button
-            type="button"
-            onClick={() => openCompose()}
-            className="icon-btn"
-            aria-label="Compose message"
-          >
-            <PencilIcon size={18} />
-          </button>
-        </header>
-
-        <div className="flex min-h-0 flex-1">
-          <section
-            id="mailbox"
-            tabIndex={-1}
-            className={`list-pane min-h-0 w-full flex-col border-r border-line/10 md:w-[22rem] md:flex-none xl:w-[24rem] ${
-              selectedEmail ? 'hidden md:flex' : 'flex'
-            }`}
-            aria-label={`${folderLabel} messages`}
-          >
-            <EmailList
-              folder={activeFolder}
-              label={folderLabel}
-              emails={filteredEmails}
-              loading={loading}
-              selectedId={selectedEmail?.id}
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              onSelect={handleSelectEmail}
-              onRefresh={() => fetchEmails()}
-              onClearSearch={() => setSearchQuery('')}
-            />
-          </section>
-
-          <section
-            className={`min-h-0 min-w-0 flex-1 ${selectedEmail ? 'flex' : 'hidden md:flex'}`}
-            aria-label="Message"
-          >
-            <MailReader
-              email={selectedEmail}
-              folder={activeFolder}
-              label={folderLabel}
-              busy={busy}
-              onReply={(email) => openCompose({ replyTo: email })}
-              onTrash={(email) => updateEmailFolder(email, 'trash')}
-              onRestore={(email) => updateEmailFolder(email, 'inbox')}
-              onDeleteForever={deleteForever}
-              onBack={() => setSelectedEmail(null)}
-              onCompose={() => openCompose()}
-            />
-          </section>
-        </div>
-      </div>
-
-      {isComposeOpen && (
-        <ComposeModal
-          replyingTo={replyingTo}
-          fromAddress={SENDER_ADDRESS}
-          to={to}
-          onToChange={setTo}
-          subject={subject}
-          onSubjectChange={setSubject}
-          body={body}
-          onBodyChange={setBody}
-          attachments={attachments}
-          onAddFiles={addFiles}
-          onRemoveAttachment={removeAttachment}
-          sending={sending}
-          error={sendError}
-          onSend={handleSendEmail}
-          onClose={closeCompose}
+        <Sidebar
+          open={isSidebarOpen}
+          onClose={() => setIsSidebarOpen(false)}
+          email={session.user?.email || ''}
+          activeFolder={activeFolder}
+          onFolderChange={changeFolder}
+          onCompose={() => openCompose()}
+          onLogout={() => handleLogout()}
         />
-      )}
 
-      <Toasts toasts={toasts} onDismiss={dismissToast} />
-    </div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <header className="app-bar flex items-center gap-2 px-3 py-2 lg:hidden">
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(true)}
+              className="icon-btn"
+              aria-label="Open navigation"
+              aria-expanded={isSidebarOpen}
+              aria-controls="mailbox-sidebar"
+            >
+              <MenuIcon size={19} />
+            </button>
+
+            <div className="mx-auto">
+              <BrandLockup compact />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => openCompose()}
+              className="icon-btn"
+              aria-label="Compose message"
+            >
+              <PencilIcon size={18} />
+            </button>
+          </header>
+
+          <div className="flex min-h-0 flex-1">
+            <section
+              id="mailbox"
+              tabIndex={-1}
+              className={`list-pane min-h-0 w-full flex-col border-r border-line/10 md:w-[21rem] md:flex-none xl:w-[23rem] ${
+                selectedEmail ? 'hidden md:flex' : 'flex'
+              }`}
+              aria-label={`${folderLabel} messages`}
+            >
+              <EmailList
+                folder={activeFolder}
+                label={folderLabel}
+                emails={filteredEmails}
+                loading={loading}
+                selectedId={selectedEmail?.id}
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                onSelect={handleSelectEmail}
+                onRefresh={() => fetchEmails()}
+                onClearSearch={() => setSearchQuery('')}
+              />
+            </section>
+
+            <section
+              className={`min-h-0 min-w-0 flex-1 ${selectedEmail ? 'flex' : 'hidden md:flex'}`}
+              aria-label="Message"
+            >
+              <MailReader
+                email={selectedEmail}
+                folder={activeFolder}
+                label={folderLabel}
+                busy={busy}
+                onReply={(email) => openCompose({ replyTo: email })}
+                onTrash={(email) => updateEmailFolder(email, 'trash')}
+                onRestore={(email) => updateEmailFolder(email, 'inbox')}
+                onDeleteForever={deleteForever}
+                onBack={() => setSelectedEmail(null)}
+                onCompose={() => openCompose()}
+              />
+            </section>
+          </div>
+        </div>
+
+        {isComposeOpen && (
+          <ComposeModal
+            replyingTo={replyingTo}
+            fromAddress={SENDER_ADDRESS}
+            to={to}
+            onToChange={setTo}
+            subject={subject}
+            onSubjectChange={setSubject}
+            body={body}
+            onBodyChange={setBody}
+            attachments={attachments}
+            onAddFiles={addFiles}
+            onRemoveAttachment={removeAttachment}
+            sending={sending}
+            error={sendError}
+            onSend={handleSendEmail}
+            onClose={closeCompose}
+          />
+        )}
+
+        <Toasts toasts={toasts} onDismiss={dismissToast} />
+      </div>
+    </>
   );
 }

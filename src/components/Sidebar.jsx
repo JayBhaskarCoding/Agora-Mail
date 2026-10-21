@@ -1,5 +1,5 @@
 import React from 'react';
-import { Avatar, BrandLockup } from './Brand.jsx';
+import { BrandLockup } from './Brand.jsx';
 import { InboxIcon, LogOutIcon, PencilIcon, SendIcon, TrashIcon, XIcon } from './Icons.jsx';
 
 const FOLDERS = [
@@ -35,7 +35,12 @@ export default function Sidebar({
       >
         <div className="flex items-center justify-between gap-3">
           <BrandLockup />
-          <button type="button" onClick={onClose} className="icon-btn lg:hidden" aria-label="Close navigation">
+          <button
+            type="button"
+            onClick={onClose}
+            className="icon-btn lg:hidden"
+            aria-label="Close navigation"
+          >
             <XIcon size={18} />
           </button>
         </div>
@@ -49,8 +54,7 @@ export default function Sidebar({
           Compose
         </button>
 
-        <p className="micro mt-8">Mailboxes</p>
-        <nav className="mt-2 space-y-1" aria-label="Mailboxes">
+        <nav className="mt-7 space-y-1" aria-label="Mailboxes">
           {FOLDERS.map(({ id, label, Icon }) => {
             const active = activeFolder === id;
             return (
@@ -68,31 +72,26 @@ export default function Sidebar({
           })}
         </nav>
 
-        <div className="mt-auto pt-8">
-          <div className="account-card">
-            <div className="flex items-center gap-2.5">
-              <Avatar name={email} size="sm" />
-              <div className="min-w-0 flex-1">
-                <p className="micro">Signed in</p>
-                <p className="truncate text-xs text-ink" title={email}>
-                  {email}
-                </p>
-              </div>
-            </div>
-
-            <div className="my-2.5 h-px bg-line/[0.08]" aria-hidden="true" />
-
+        {/* One compact account panel replaces the old panel + footer stack. */}
+        <div className="account-card mt-auto">
+          <div className="flex items-center gap-2">
+            <p className="min-w-0 flex-1 truncate text-[0.76rem] font-medium text-ink" title={email}>
+              {email}
+            </p>
             <button
               type="button"
               onClick={onLogout}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-muted transition hover:bg-danger/10 hover:text-danger"
+              className="icon-btn !h-7 !w-7"
+              aria-label="Sign out"
+              title="Sign out"
             >
               <LogOutIcon size={14} />
-              Sign out
             </button>
           </div>
-
-          <p className="micro mt-4 text-center">Agora Mail · Web</p>
+          <p className="micro mt-1 flex items-center gap-1.5 !text-[0.55rem]">
+            <span className="h-1.5 w-1.5 rounded-full bg-positive" aria-hidden="true" />
+            Signed in
+          </p>
         </div>
       </aside>
     </>

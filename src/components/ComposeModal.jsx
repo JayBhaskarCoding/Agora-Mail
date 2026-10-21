@@ -8,7 +8,7 @@ import {
   Spinner,
   XIcon,
 } from './Icons.jsx';
-import { formatBytes, snippet } from '../lib/format.js';
+import { cleanPreview, cleanSubject, displayName, formatBytes, snippet } from '../lib/format.js';
 
 const MAX_ATTACHMENTS = 10;
 
@@ -160,13 +160,16 @@ export default function ComposeModal({
             </div>
 
             {replyingTo && (
-              <div className="flex items-start gap-3 rounded-r-xl border-l-2 border-brand bg-surface-2 px-3.5 py-3">
+              <div className="reply-ref">
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold text-ink">
-                    Replying to {replyingTo.from_address}
+                  <p className="micro !text-[0.55rem]">
+                    Replying to {displayName(replyingTo.from_address)}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-ink">
+                    {cleanSubject(replyingTo.subject) || '(No subject)'}
                   </p>
                   <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted">
-                    {snippet(replyingTo.text_body, 180)}
+                    {snippet(cleanPreview(replyingTo.text_body || replyingTo.html_body), 180)}
                   </p>
                 </div>
               </div>
@@ -245,7 +248,6 @@ export default function ComposeModal({
           </div>
 
           <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line/10 px-5 py-4 sm:px-6">
-            <p className="micro hidden sm:block">Sent from {fromAddress}</p>
             <div className="ml-auto flex items-center gap-2">
               <button
                 type="button"
