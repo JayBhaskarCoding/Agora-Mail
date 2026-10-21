@@ -210,5 +210,30 @@ export default function WebmailDashboard() {
         </div>
       )}
     </div>
+
+    const handleSelectEmail = async (email) => {
+    setSelectedEmail(email);
+    
+    // If the email is unread and in the inbox, mark it as read in Supabase
+    if (!email.is_read && email.folder === 'inbox') {
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/emails?id=eq.${email.id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify({ is_read: true })
+        });
+
+        // Update local state to reflect it as read immediately
+        setEmails(emails.map(item => item.id === email.id ? { ...item, is_read: true } : item));
+      } catch (err) {
+        console.error('Failed to update read status:', err);
+      }
+    }
+  };
   );
 }
