@@ -198,7 +198,15 @@ export default function WebmailDashboard() {
     }
   };
 
-  // 6. Send email via Resend worker
+  // 6. Handle Reply action
+  const handleReply = (email) => {
+    setTo(email.from_address);
+    setSubject(email.subject?.startsWith('Re:') ? email.subject : `Re: ${email.subject || ''}`);
+    setBody(`\n\n--- Original Message ---\nFrom: ${email.from_address}\nDate: ${new Date(email.created_at).toLocaleString()}\n\n${email.text_body || ''}`);
+    setIsComposeOpen(true);
+  };
+
+  // 7. Send email via Resend worker
   const handleSendEmail = async (e) => {
     e.preventDefault();
     setSending(true);
@@ -233,7 +241,7 @@ export default function WebmailDashboard() {
     }
   };
 
-  // 7. Filter emails based on search query
+  // 8. Filter emails based on search query
   const filteredEmails = emails.filter(email => {
     const query = searchQuery.toLowerCase();
     const from = email.from_address?.toLowerCase() || '';
@@ -305,7 +313,12 @@ export default function WebmailDashboard() {
       <div className="w-64 bg-gray-950 border-r border-gray-800 flex flex-col p-4">
         <h1 className="text-xl font-bold text-blue-400 mb-6">Agora Mail</h1>
         <button 
-          onClick={() => setIsComposeOpen(true)}
+          onClick={() => {
+            setTo('');
+            setSubject('');
+            setBody('');
+            setIsComposeOpen(true);
+          }}
           className="bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded-lg mb-4 transition"
         >
           + Compose
@@ -409,6 +422,14 @@ export default function WebmailDashboard() {
                   {new Date(selectedEmail.created_at).toLocaleString()}
                 </span>
                 
+                {/* Reply Button */}
+                <button 
+                  onClick={() => handleReply(selectedEmail)}
+                  className="bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white px-3 py-1 rounded text-xs transition"
+                >
+                  ↩️ Reply
+                </button>
+
                 {activeFolder === 'trash' ? (
                   <>
                     <button 
