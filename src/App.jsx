@@ -210,6 +210,27 @@ export default function WebmailDashboard() {
         </div>
       )}
     </div>
+    <div 
+                key={email.id} 
+                onClick={() => handleSelectEmail(email)}
+                className={`p-4 cursor-pointer hover:bg-gray-800 transition flex items-start space-x-3 ${selectedEmail?.id === email.id ? 'bg-gray-800' : ''}`}
+              >
+                {/* Unread Indicator Dot */}
+                <div className="pt-1.5">
+                  {!email.is_read && activeFolder === 'inbox' && (
+                    <span className="block w-2.5 h-2.5 bg-blue-500 rounded-full"></span>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-gray-400 truncate mb-1">
+                    {activeFolder === 'inbox' ? email.from_address : `To: ${email.to_address}`}
+                  </div>
+                  <div className={`text-sm truncate ${!email.is_read && activeFolder === 'inbox' ? 'font-bold text-white' : 'font-medium text-gray-200'}`}>
+                    {email.subject || '(No Subject)'}
+                  </div>
+                  <div className="text-xs text-gray-500 truncate mt-1">{email.text_body?.substring(0, 50)}...</div>
+                </div>
+    </div>
 
     const handleSelectEmail = async (email) => {
     setSelectedEmail(email);
