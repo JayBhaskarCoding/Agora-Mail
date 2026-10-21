@@ -25,6 +25,7 @@ export default function WebmailDashboard() {
   const [to, setTo] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [attachments, setAttachments] = useState([]);
   const [sending, setSending] = useState(false);
 
   // Handle Login via Supabase Auth REST API
@@ -203,10 +204,43 @@ export default function WebmailDashboard() {
     setTo(email.from_address);
     setSubject(email.subject?.startsWith('Re:') ? email.subject : `Re: ${email.subject || ''}`);
     setBody(`\n\n--- Original Message ---\nFrom: ${email.from_address}\nDate: ${new Date(email.created_at).toLocaleString()}\n\n${email.text_body || ''}`);
+    setAttachments([]);
     setIsComposeOpen(true);
   };
 
-  // 7. Send email via Resend worker
+  // 7. Handle File Selection with 25 MB limit check
+  const handleFileChange = (e) => {
+    const files = Array.from(e.target.files);
+    const MAX_SIZE = 25 * 1024 * 1024; // 25 MB
+
+    const oversizedFiles = files.filter(file => file.size > MAX_SIZE);
+    if (oversizedFiles.length > 0) {
+      alert(`Cannot attach "${oversizedFiles[0].name}". Files larger than 25 MB cannot be sent.`);
+      e.target.value = '';
+      return;
+    }
+
+    Promise.all(
+      files.map(file => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const base64Content = reader.result.split(',')[1];
+            resolve({
+              filename: file.name,
+              content: base64Content
+            });
+          };
+          reader.onerror = error => reject(error);
+          reader.readAsDataURL(file);
+        });
+      })
+    ).then(encodedFiles => {
+      setAttachments(encodedFiles);
+    });
+  };
+
+  // 8. Send email via Resend worker
   const handleSendEmail = async (e) => {
     e.preventDefault();
     setSending(true);
@@ -218,7 +252,8 @@ export default function WebmailDashboard() {
           to,
           subject,
           html: `<p>${body.replace(/\n/g, '<br/>')}</p>`,
-          customFrom: 'mail@agora.in.net'
+          customFrom: 'mail@agora.in.net',
+          attachments
         })
       });
 
@@ -228,6 +263,7 @@ export default function WebmailDashboard() {
         setTo('');
         setSubject('');
         setBody('');
+        setAttachments([]);
         setActiveFolder('sent');
         fetchEmails();
       } else {
@@ -241,7 +277,7 @@ export default function WebmailDashboard() {
     }
   };
 
-  // 8. Filter emails based on search query
+  // 9. Filter emails based on search query
   const filteredEmails = emails.filter(email => {
     const query = searchQuery.toLowerCase();
     const from = email.from_address?.toLowerCase() || '';
@@ -317,6 +353,7 @@ export default function WebmailDashboard() {
             setTo('');
             setSubject('');
             setBody('');
+            setAttachments([]);
             setIsComposeOpen(true);
           }}
           className="bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded-lg mb-4 transition"
@@ -462,6 +499,23 @@ export default function WebmailDashboard() {
                 <p className="whitespace-pre-wrap">{selectedEmail.text_body}</p>
               )}
             </div>
+
+            {/* Attachments Section */}
+            {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
+              <div className="mt-6 pt-4 border-t border-gray-800">
+                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Attachments</h4>
+                <div className="flex flex-wrap gap-2">
+                  {selectedEmail.attachments.map((att, index) => (
+                    <span 
+                      key={index}
+                      className="bg-gray-900 border border-gray-800 px-3 py-2 rounded-lg text-xs text-blue-400 flex items-center space-x-2"
+                    >
+                      <span>📎 {att.filename}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-600">
@@ -507,15 +561,29 @@ export default function WebmailDashboard() {
               <div>
                 <label className="block text-xs text-gray-400 mb-1">Message</label>
                 <textarea 
-                  rows="6" 
+                  rows="5" 
                   value={body} 
                   onChange={(e) => setBody(e.target.value)} 
                   placeholder="Write your message here..." 
                   className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" 
                 />
               </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Attachments (Max 25 MB per file)</label>
+                <input 
+                  type="file" 
+                  multiple
+                  onChange={handleFileChange}
+                  className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-gray-400 file:mr-4 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:bg-blue-600 file:text-white hover:file:bg-blue-500" 
+                />
+                {attachments.length > 0 && (
+                  <div className="mt-1 text-xs text-blue-400">
+                    {attachments.length} file(s) attached
+                  </div>
+                )}
+              </div>
               <div className="flex justify-end space-x-3 pt-2">
-                <button type="button" onClick={() => setIsComposeOpen(false)} className="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 rounded-lg">Cancel</button>
+                <button type="button" onClick={() => setIsComposeOpen(false)} className="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 rounded-lg">Cancel/Close</button>
                 <button type="submit" disabled={sending} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 rounded-lg font-medium">
                   {sending ? 'Sending...' : 'Send Email'}
                 </button>
