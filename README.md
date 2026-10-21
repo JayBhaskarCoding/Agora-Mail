@@ -79,10 +79,14 @@ src/
   an explanation.
 - The composer escapes typed text before it becomes outgoing HTML, caps attachments at
   10 files / 25 MB each, and closes on `Escape` with focus trapped inside the dialog.
-- Outgoing mail uses `lib/mailTemplate.js`: a text-first document in the app's palette and
-  type scale (Inter-scale stack, `#1A1E23` ink, soft violet quote rule), built from tables
-  and inline styles so it survives Gmail, Apple Mail and Outlook. The sender worker already
-  supplies the Agora header (logo + `agora.` + rule) and the "Sent securely via Agora Mail"
-  footer, so the template deliberately adds no second lockup, card or footer. Quotes keep
-  the original HTML with scripts and inline handlers stripped.
+- Outgoing mail uses `lib/mailTemplate.js`: one 600px white card with a rounded edge, a
+  40 × 3px violet → blue rule as its only ornament, and 16px/1.75 copy at `#33383F`. It is
+  built from tables and inline styles so it survives Gmail, Apple Mail and Outlook — the
+  gradient is drawn as three solid cells because Outlook ignores `linear-gradient`, and an
+  `mso` conditional swaps in Arial. The sender worker supplies the Agora masthead (logo +
+  `agora.` + hairline) and the "Sent securely via Agora Mail" footer, so the template adds
+  no second lockup, footer or tagline. There is no hidden preheader either: clients prepend
+  it to the inbox snippet, which made short messages look duplicated. Replies keep the
+  original HTML with scripts and inline handlers stripped, attributed by display name
+  ("On 20 Oct, Ananya Rao wrote:") rather than by raw mailbox.
 - The mailbox polls every 10 seconds; the refresh button forces a pass.

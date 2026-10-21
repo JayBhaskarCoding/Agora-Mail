@@ -9,7 +9,7 @@ import { BrandLockup } from './components/Brand.jsx';
 import Ambient from './components/Ambient.jsx';
 import { MenuIcon, PencilIcon } from './components/Icons.jsx';
 import { cleanSubject, extractEmailAddress } from './lib/format.js';
-import { buildOutgoingHtml } from './lib/mailTemplate.js';
+import { buildOutgoingHtml, buildOutgoingText } from './lib/mailTemplate.js';
 
 /* ============================================================
    Agora Mail — webmail for @agora.in.net
@@ -413,6 +413,7 @@ export default function AgoraMail() {
     try {
       const recipient = extractEmailAddress(to);
       const finalHtml = buildOutgoingHtml({ body, replyingTo, subject });
+      const finalText = buildOutgoingText({ body, replyingTo });
 
       const response = await fetch(MAIL_SENDER_URL, {
         method: 'POST',
@@ -421,6 +422,9 @@ export default function AgoraMail() {
           to: recipient,
           subject,
           html: finalHtml,
+          /* A clean text part keeps wrappers out of notification previews.
+             Workers that build their own text part simply ignore it. */
+          text: finalText,
           customFrom: SENDER_ADDRESS,
           attachments: attachments.map(({ filename, content }) => ({ filename, content })),
         }),
