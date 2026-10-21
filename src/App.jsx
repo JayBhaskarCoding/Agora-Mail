@@ -271,7 +271,7 @@ export default function WebmailDashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          to: extractEmailAddress(to), // ensure clean email is sent
+          to: extractEmailAddress(to),
           subject,
           html: finalHtml,
           customFrom: 'mail@agora.in.net',
@@ -370,7 +370,16 @@ export default function WebmailDashboard() {
     <div className="flex h-screen bg-gray-900 text-gray-100 font-sans overflow-hidden">
       {/* Sidebar */}
       <div className="w-64 bg-gray-950 border-r border-gray-800 flex flex-col p-4">
-        <h1 className="text-xl font-bold text-blue-400 mb-6 tracking-tight">Agora Mail</h1>
+        {/* Logo Header */}
+        <div className="flex items-center space-x-3 mb-6">
+          <img 
+            src="https://sepvcatdqrnzjuvxabzh.supabase.co/storage/v1/object/public/email-attachments/logo.png" 
+            alt="Agora Logo" 
+            className="w-8 h-8 rounded-lg object-contain bg-blue-600/10 p-1 border border-blue-500/20" 
+          />
+          <h1 className="text-xl font-bold text-blue-400 tracking-tight">Agora Mail</h1>
+        </div>
+
         <button 
           onClick={() => {
             setTo('');
