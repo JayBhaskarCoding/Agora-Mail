@@ -112,7 +112,7 @@ export default function WebmailDashboard() {
             emails.map((email) => (
               <div 
                 key={email.id} 
-                onClick={() => setSelectedEmail(email)}
+                onClick={() => handleSelectEmail(email)}
                 className={`p-4 cursor-pointer hover:bg-gray-800 transition ${selectedEmail?.id === email.id ? 'bg-gray-800' : ''}`}
               >
                 <div className="text-xs text-gray-400 truncate mb-1">
