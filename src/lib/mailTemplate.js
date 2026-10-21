@@ -99,7 +99,12 @@ function quoteAuthor(fromAddress = '') {
   return bare ? bare[0] : raw;
 }
 
-/** The message being replied to, set as a quiet violet-ruled aside. */
+/**
+ * The message being replied to, set as a quiet violet-ruled aside.
+ * `data-reply-quote` marks the block: the sender worker strips everything
+ * inside it when it builds the inbox preview snippet, so a reply previews
+ * the new message rather than the thread it answers.
+ */
 function quoteBlock(replyingTo) {
   const when = new Date(replyingTo.created_at);
   const stamp = Number.isNaN(when.getTime())
@@ -110,7 +115,7 @@ function quoteBlock(replyingTo) {
     : renderQuotedText(replyingTo.text_body);
 
   return `
-<div style="margin:28px 0 0;padding:2px 0 0 16px;border-left:2px solid ${MAIL_BRAND.quoteRule};">
+<div data-reply-quote="true" style="margin:28px 0 0;padding:2px 0 0 16px;border-left:2px solid ${MAIL_BRAND.quoteRule};">
   <p style="margin:0 0 10px;font-family:${FONT_SANS};font-size:12px;line-height:1.6;color:${MAIL_BRAND.faint};">` +
     `On ${escapeHtml(stamp)}, ${escapeHtml(quoteAuthor(replyingTo.from_address))} wrote:</p>
   <div style="font-family:${FONT_SANS};font-size:15px;line-height:1.7;color:${MAIL_BRAND.muted};">${original}</div>
@@ -130,9 +135,13 @@ function brandRule() {
  * @param {string}  options.body        Plain-text body typed in the composer.
  * @param {object=} options.replyingTo  The message being replied to, if any.
  * @param {string=} options.subject     Used for the document title.
+ * @param {string=} options.previewText Inbox snippet the sender chose. Only
+ *   written as a hidden preheader when present, so an unset draft cannot
+ *   reintroduce the duplicate-snippet problem described above.
  */
-export function buildOutgoingHtml({ body, replyingTo, subject = '' } = {}) {
+export function buildOutgoingHtml({ body, replyingTo, subject = '', previewText = '' } = {}) {
   const title = subject?.trim() || 'Agora Mail';
+  const snippetText = String(previewText || '').trim();
 
   return `<!doctype html>
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml">
@@ -146,7 +155,12 @@ export function buildOutgoingHtml({ body, replyingTo, subject = '' } = {}) {
   <!--[if mso]><style>body,table,td,p{font-family:Arial,Helvetica,sans-serif !important;}</style><![endif]-->
 </head>
 <body style="margin:0;padding:0;background-color:transparent;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
-
+${snippetText ? `
+  <!-- Only rendered when the sender typed one: clients show this beside the subject. -->
+  <div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px;color:transparent;">
+    ${escapeHtml(snippetText)}
+  </div>
+` : ''}
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
     <tr>
       <td align="center" style="padding:0;">

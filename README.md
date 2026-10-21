@@ -79,6 +79,12 @@ src/
   an explanation.
 - The composer escapes typed text before it becomes outgoing HTML, caps attachments at
   10 files / 25 MB each, and closes on `Escape` with focus trapped inside the dialog.
+- **Inbox preview text.** The composer takes an optional snippet under the subject. It is
+  sent to the worker as `previewText` and, when filled, written into the message as a
+  hidden preheader; left blank, the field is omitted so clients fall back to the opening
+  of the message rather than to duplicated wrapper copy. It resets on cancel and on send.
+- **Reply quotes** carry `data-reply-quote="true"` on the wrapper, so the worker can drop
+  the old thread when it builds the inbox snippet — a reply previews the reply.
 - Outgoing mail uses `lib/mailTemplate.js`: one 600px white card with a rounded edge, a
   40 × 3px violet → blue rule as its only ornament, and 16px/1.75 copy at `#33383F`. It is
   built from tables and inline styles so it survives Gmail, Apple Mail and Outlook — the

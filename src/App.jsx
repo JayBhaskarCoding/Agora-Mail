@@ -74,6 +74,9 @@ export default function AgoraMail() {
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [to, setTo] = useState('');
   const [subject, setSubject] = useState('');
+  /* Inbox preview text: the snippet clients show next to the subject. Empty
+     means the worker/client fall back to the opening of the message. */
+  const [previewText, setPreviewText] = useState('');
   const [body, setBody] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [replyingTo, setReplyingTo] = useState(null);
@@ -339,6 +342,7 @@ export default function AgoraMail() {
     /* Subjects are stored entity-encoded; decode before editing or sending. */
     const decodedSubject = cleanSubject(replyTo?.subject || '');
     setSubject(replyTo ? (/^re:/i.test(decodedSubject) ? decodedSubject : `Re: ${decodedSubject}`) : '');
+    setPreviewText('');
     setBody('');
     setAttachments([]);
     setSendError('');
@@ -350,6 +354,7 @@ export default function AgoraMail() {
     if (sending) return;
     setIsComposeOpen(false);
     setReplyingTo(null);
+    setPreviewText('');
     setSendError('');
   };
 
@@ -412,7 +417,7 @@ export default function AgoraMail() {
 
     try {
       const recipient = extractEmailAddress(to);
-      const finalHtml = buildOutgoingHtml({ body, replyingTo, subject });
+      const finalHtml = buildOutgoingHtml({ body, replyingTo, subject, previewText });
       const finalText = buildOutgoingText({ body, replyingTo });
 
       const response = await fetch(MAIL_SENDER_URL, {
@@ -421,6 +426,9 @@ export default function AgoraMail() {
         body: JSON.stringify({
           to: recipient,
           subject,
+          /* The worker sets this as the inbox preheader; when it is blank the
+             client falls back to the opening of the message. */
+          previewText: previewText.trim(),
           html: finalHtml,
           /* A clean text part keeps wrappers out of notification previews.
              Workers that build their own text part simply ignore it. */
@@ -444,6 +452,7 @@ export default function AgoraMail() {
       setReplyingTo(null);
       setTo('');
       setSubject('');
+      setPreviewText('');
       setBody('');
       setAttachments([]);
 
@@ -594,6 +603,8 @@ export default function AgoraMail() {
             onToChange={setTo}
             subject={subject}
             onSubjectChange={setSubject}
+            previewText={previewText}
+            onPreviewTextChange={setPreviewText}
             body={body}
             onBodyChange={setBody}
             attachments={attachments}

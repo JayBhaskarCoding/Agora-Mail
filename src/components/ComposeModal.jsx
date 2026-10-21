@@ -19,6 +19,8 @@ export default function ComposeModal({
   onToChange,
   subject,
   onSubjectChange,
+  previewText = '',
+  onPreviewTextChange,
   body,
   onBodyChange,
   attachments,
@@ -157,6 +159,43 @@ export default function ComposeModal({
                 placeholder="Subject line"
                 className="field-control"
               />
+            </div>
+
+            {/* The line mail clients show beside the subject, before the
+                message is opened. Blank falls back to the message itself. */}
+            <div>
+              <div className="flex items-baseline justify-between gap-3">
+                <label
+                  className="field-label leading-snug"
+                  htmlFor="compose-preview-text"
+                >
+                  Inbox Preview Text (Optional — defaults to message body)
+                </label>
+                {previewText.length > 0 && (
+                  <span
+                    className={`shrink-0 font-mono text-[0.6rem] tabular-nums ${
+                      previewText.length > 140 ? 'text-danger' : 'text-faint'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {previewText.length}/140
+                  </span>
+                )}
+              </div>
+              <input
+                id="compose-preview-text"
+                type="text"
+                value={previewText}
+                onChange={(event) => onPreviewTextChange?.(event.target.value)}
+                placeholder="Custom snippet shown in inbox list before opening (like Squarespace)..."
+                className="field-control"
+                maxLength={200}
+                aria-describedby="compose-preview-hint"
+              />
+              <p id="compose-preview-hint" className="mt-1.5 text-[0.7rem] leading-relaxed text-faint">
+                Shown after the subject in the recipient’s inbox. Leave it blank and the first
+                line of your message is used instead.
+              </p>
             </div>
 
             {replyingTo && (
