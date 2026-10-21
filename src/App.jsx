@@ -1,10 +1,20 @@
 import React, { useState, useEffect } from 'react';
 
-// Replace with your Supabase Public Anon Key and URL
 const SUPABASE_URL = 'https://sepvcatdqrnzjuvxabzh.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlcHZjYXRkcXJuemp1dnhhYnpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2MDEzMzIsImV4cCI6MjEwNjE3NzMzMn0.wY2PlB5M66AOG-xM3j0d6fD5OSNBUZYzEcbNNIlHBHE';
 
 export default function WebmailDashboard() {
+  // Auth state
+  const [session, setSession] = useState(() => {
+    const saved = localStorage.getItem('agora_mail_session');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [loggingIn, setLoggingIn] = useState(false);
+
+  // Mail state
   const [emails, setEmails] = useState([]);
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [activeFolder, setActiveFolder] = useState('inbox');
@@ -17,15 +27,66 @@ export default function WebmailDashboard() {
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
 
-  // 1. Fetch emails from Supabase
+  // Handle Login via Supabase Auth REST API
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoggingIn(true);
+    setAuthError('');
+
+    try {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({
+          email: loginEmail,
+          password: loginPassword,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setAuthError(data.error_description || data.msg || 'Invalid login credentials');
+      } else {
+        localStorage.setItem('agora_mail_session', JSON.stringify(data));
+        setSession(data);
+        setLoginEmail('');
+        setLoginPassword('');
+      }
+    } catch (err) {
+      setAuthError('Network error occurred while signing in.');
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  // Handle Sign Out
+  const handleLogout = () => {
+    localStorage.removeItem('agora_mail_session');
+    setSession(null);
+    setEmails([]);
+    setSelectedEmail(null);
+  };
+
+  // 1. Fetch emails from Supabase using the user's access token
   const fetchEmails = async () => {
+    if (!session?.access_token) return;
     try {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/emails?folder=eq.${activeFolder}&order=created_at.desc`, {
         headers: {
           'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+          'Authorization': `Bearer ${session.access_token}`
         }
       });
+
+      if (res.status === 401) {
+        handleLogout();
+        return;
+      }
+
       const data = await res.json();
       if (Array.isArray(data)) setEmails(data);
     } catch (err) {
@@ -34,10 +95,12 @@ export default function WebmailDashboard() {
   };
 
   useEffect(() => {
-    fetchEmails();
-    const interval = setInterval(fetchEmails, 10000); // Poll every 10s for new mail
-    return () => clearInterval(interval);
-  }, [activeFolder]);
+    if (session) {
+      fetchEmails();
+      const interval = setInterval(fetchEmails, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [activeFolder, session]);
 
   // 2. Select email and mark as read
   const handleSelectEmail = async (email) => {
@@ -50,7 +113,7 @@ export default function WebmailDashboard() {
           headers: {
             'Content-Type': 'application/json',
             'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Authorization': `Bearer ${session.access_token}`,
             'Prefer': 'return=minimal'
           },
           body: JSON.stringify({ is_read: true })
@@ -71,7 +134,7 @@ export default function WebmailDashboard() {
         headers: {
           'Content-Type': 'application/json',
           'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Authorization': `Bearer ${session.access_token}`,
           'Prefer': 'return=minimal'
         },
         body: JSON.stringify({ folder: 'trash' })
@@ -95,7 +158,7 @@ export default function WebmailDashboard() {
         method: 'DELETE',
         headers: {
           'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+          'Authorization': `Bearer ${session.access_token}`
         }
       });
 
@@ -118,7 +181,7 @@ export default function WebmailDashboard() {
         headers: {
           'Content-Type': 'application/json',
           'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Authorization': `Bearer ${session.access_token}`,
           'Prefer': 'return=minimal'
         },
         body: JSON.stringify({ folder: 'inbox' })
@@ -176,16 +239,71 @@ export default function WebmailDashboard() {
     const from = email.from_address?.toLowerCase() || '';
     const to = email.to_address?.toLowerCase() || '';
     const subject = email.subject?.toLowerCase() || '';
-    const body = email.text_body?.toLowerCase() || '';
+    const bodyText = email.text_body?.toLowerCase() || '';
 
-    return from.includes(query) || to.includes(query) || subject.includes(query) || body.includes(query);
+    return from.includes(query) || to.includes(query) || subject.includes(query) || bodyText.includes(query);
   });
 
+  // Render Login Portal if not authenticated
+  if (!session) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-950 text-gray-100 font-sans p-4">
+        <div className="w-full max-w-md bg-gray-900 border border-gray-800 rounded-2xl p-8 shadow-2xl">
+          <div className="text-center mb-8">
+            <h1 className="text-2xl font-bold text-blue-400">Agora Mail</h1>
+            <p className="text-sm text-gray-400 mt-1">Sign in to access your @agora.in.net webmail portal</p>
+          </div>
+
+          {authError && (
+            <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
+              {authError}
+            </div>
+          )}
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Email Address</label>
+              <input
+                type="email"
+                required
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                placeholder="you@agora.in.net"
+                className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3.5 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500 transition"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Password</label>
+              <input
+                type="password"
+                required
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3.5 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500 transition"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loggingIn}
+              className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg transition mt-2"
+            >
+              {loggingIn ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // Render Webmail Dashboard when authenticated
   return (
     <div className="flex h-screen bg-gray-900 text-gray-100 font-sans">
       {/* Sidebar */}
       <div className="w-64 bg-gray-950 border-r border-gray-800 flex flex-col p-4">
-        <h1 className="text-lg font-bold text-blue-400 mb-6">agora.in.net Mail</h1>
+        <h1 className="text-xl font-bold text-blue-400 mb-6">Agora Mail</h1>
         <button 
           onClick={() => setIsComposeOpen(true)}
           className="bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded-lg mb-4 transition"
@@ -204,7 +322,7 @@ export default function WebmailDashboard() {
           />
         </div>
 
-        <nav className="space-y-1">
+        <nav className="space-y-1 flex-1">
           <button 
             onClick={() => { setActiveFolder('inbox'); setSelectedEmail(null); }}
             className={`w-full text-left px-3 py-2 rounded-lg transition ${activeFolder === 'inbox' ? 'bg-gray-800 text-blue-400' : 'hover:bg-gray-900'}`}
@@ -224,6 +342,19 @@ export default function WebmailDashboard() {
             🗑️ Trash
           </button>
         </nav>
+
+        {/* User Footer & Logout */}
+        <div className="pt-4 border-t border-gray-800 flex items-center justify-between text-xs text-gray-400">
+          <span className="truncate max-w-[140px]" title={session.user?.email}>
+            {session.user?.email}
+          </span>
+          <button
+            onClick={handleLogout}
+            className="text-red-400 hover:text-red-300 font-medium transition"
+          >
+            Sign Out
+          </button>
+        </div>
       </div>
 
       {/* Email List */}
@@ -243,7 +374,6 @@ export default function WebmailDashboard() {
                 onClick={() => handleSelectEmail(email)}
                 className={`p-4 cursor-pointer hover:bg-gray-800 transition flex items-start space-x-3 ${selectedEmail?.id === email.id ? 'bg-gray-800' : ''}`}
               >
-                {/* Unread Indicator Dot */}
                 <div className="pt-1.5">
                   {!email.is_read && activeFolder === 'inbox' && (
                     <span className="block w-2.5 h-2.5 bg-blue-500 rounded-full"></span>
