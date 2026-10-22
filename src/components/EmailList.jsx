@@ -1,15 +1,22 @@
 import React from 'react';
 import { Avatar } from './Brand.jsx';
-import { messagePreview, NO_SUBJECT } from '../lib/threads.js';
+import {
+  isOutgoingMessage,
+  messagePreview,
+  NO_SUBJECT,
+  threadParticipants,
+  threadRecipient,
+} from '../lib/threads.js';
 import {
   InboxIcon,
   RefreshIcon,
   SearchIcon,
   SendIcon,
+  ThreadIcon,
   TrashIcon,
   XIcon,
 } from './Icons.jsx';
-import { displayName, formatListTime } from '../lib/format.js';
+import { displayName, formatListTime, recipientLabel } from '../lib/format.js';
 
 const EMPTY_COPY = {
   inbox: {
@@ -84,6 +91,7 @@ export default function EmailList({
   folder,
   label,
   threads,
+  selfAddresses = [],
   loading,
   selectedId,
   searchQuery,
@@ -95,6 +103,36 @@ export default function EmailList({
   const count = threads.length;
   const unreadCount =
     folder === 'inbox' ? threads.reduce((total, thread) => total + thread.unread, 0) : 0;
+
+  /* Who the row is about: in Sent the recipient, everywhere else everyone on
+     the other side of the conversation. */
+  const describeRow = (thread) => {
+    if (folder !== 'sent') {
+      const names = threadParticipants(thread, selfAddresses);
+      /* If we spoke last, the row still belongs to the person we spoke to. */
+      const incoming = [...thread.emails]
+        .reverse()
+        .find((email) => !isOutgoingMessage(email, selfAddresses));
+
+      return {
+        sender:
+          names.length > 0 ? names.slice(0, 2).join(', ') : displayName(thread.latest.from_address),
+        avatar: incoming?.from_address || thread.latest.from_address,
+        prefix: '',
+        address: '',
+      };
+    }
+
+    const recipient = threadRecipient(thread);
+    const { primary, secondary } = recipientLabel(recipient.raw);
+
+    return {
+      sender: primary,
+      avatar: recipient.address || recipient.display,
+      prefix: 'To:',
+      address: secondary,
+    };
+  };
 
   return (
     <>
@@ -157,23 +195,14 @@ export default function EmailList({
           <ul>
             {threads.map((thread) => {
               const latest = thread.latest;
-              const unread = folder === 'inbox' && thread.unread > 0;
+              const unreadInFolder = thread.emails.filter(
+                (email) => !email.is_read && email.folder === folder,
+              ).length;
+              const unread = folder === 'inbox' && unreadInFolder > 0;
               const selected = selectedId === thread.key;
-              const correspondent =
-                folder === 'sent' ? latest.to_address : latest.from_address;
-
-              /* Gmail names the conversation by everyone in it; the count sits
-                 beside the name so a busy thread reads at a glance. In Sent
-                 the interesting names are the recipients, not the sender. */
-              const names =
-                folder === 'sent'
-                  ? displayName(latest.to_address)
-                  : thread.count > 1 && thread.participants.length > 0
-                    ? thread.participants.slice(0, 2).join(', ')
-                    : displayName(correspondent);
-              const sender = folder === 'sent' ? `To: ${names}` : names;
-
+              const row = describeRow(thread);
               const preview = messagePreview(latest, 65);
+              const ongoing = thread.count > 1;
 
               return (
                 <li key={thread.key}>
@@ -182,29 +211,59 @@ export default function EmailList({
                     onClick={() => onSelect(thread)}
                     className={`mail-row ${unread ? 'is-unread' : ''} ${selected ? 'is-selected' : ''}`}
                     aria-current={selected ? 'true' : undefined}
+                    title={row.address ? `${row.prefix} ${row.sender} <${row.address}>` : undefined}
                   >
-                    <Avatar name={correspondent} size="md" />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2">
+                    <Avatar name={row.avatar} size="md" />
+
+                    <span className="mail-row__body min-w-0 flex-1">
+                      {/* Who · when. The name truncates; the stamp never does. */}
+                      <span className="mail-row__top flex min-w-0 items-center gap-1.5">
                         {unread && <span className="unread-dot" aria-hidden="true" />}
-                        <span className="mail-row__sender truncate">{sender}</span>
-                        {thread.count > 1 && (
-                          <span className="mail-row__count shrink-0" title={`${thread.count} messages`}>
-                            ({thread.count})
+                        {row.prefix && (
+                          <span className="mail-row__prefix shrink-0">{row.prefix}</span>
+                        )}
+                        <span className="mail-row__sender min-w-0 truncate">{row.sender}</span>
+                        {row.address && (
+                          <span className="mail-row__address hidden min-w-0 truncate sm:block">
+                            {row.address}
                           </span>
                         )}
-                        <time className="mail-row__time ml-auto" dateTime={latest.created_at}>
+                        <time
+                          className="mail-row__time ml-auto shrink-0"
+                          dateTime={latest.created_at}
+                        >
                           {formatListTime(latest.created_at)}
                         </time>
                       </span>
-                      <span className="mail-row__subject mt-0.5 block truncate">
-                        {thread.subject === NO_SUBJECT ? '(no subject)' : thread.subject}
+
+                      {/* What · how many. A conversation carries its layers
+                          and a count pill; a single message stays plain. */}
+                      <span className="mail-row__middle mt-0.5 flex min-w-0 items-center gap-2">
+                        <span className="mail-row__subject min-w-0 truncate">
+                          {thread.subject === NO_SUBJECT ? '(no subject)' : thread.subject}
+                        </span>
+                        {ongoing && (
+                          <span
+                            className="mail-row__thread ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-purple-500/30 bg-purple-500/20 px-2 py-0.5 text-[10px] font-semibold leading-none text-purple-300"
+                            title={`${thread.count} messages in this conversation`}
+                          >
+                            <ThreadIcon size={10} />
+                            <span>{thread.count}</span>
+                          </span>
+                        )}
                       </span>
+
                       <span className="mail-row__snippet mt-0.5 line-clamp-2">{preview}</span>
                     </span>
+
                     {unread && (
                       <span className="sr-only">
-                        {thread.unread} unread {thread.unread === 1 ? 'message' : 'messages'}
+                        {unreadInFolder} unread {unreadInFolder === 1 ? 'message' : 'messages'}
+                      </span>
+                    )}
+                    {ongoing && (
+                      <span className="sr-only">
+                        Conversation of {thread.count} messages
                       </span>
                     )}
                   </button>

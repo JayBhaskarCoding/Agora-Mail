@@ -7,6 +7,7 @@ import {
   PencilIcon,
   ReplyIcon,
   RestoreIcon,
+  SendIcon,
   Spinner,
   TrashIcon,
   XIcon,
@@ -21,12 +22,25 @@ import {
 import { themeEmailHtml } from '../lib/emailTheme.js';
 import {
   extractMessageHtml,
+  isOutgoingMessage,
   messagePreview,
   replySubject,
   stripPreheader,
   stripQuotedHtml,
   stripQuotedText,
+  threadParticipants,
 } from '../lib/threads.js';
+
+/** Our own messages get a send mark instead of someone else's initials. */
+function SenderMark({ outgoing, name, size = 'md' }) {
+  if (!outgoing) return <Avatar name={name} size={size} />;
+
+  return (
+    <span className={`avatar avatar--${size} avatar--sent`} aria-hidden="true">
+      <SendIcon size={size === 'sm' ? 12 : 14} />
+    </span>
+  );
+}
 
 function ReaderEmpty({ onCompose }) {
   return (
@@ -54,7 +68,15 @@ function ReaderEmpty({ onCompose }) {
  * the sender worker's envelope, marked reply quotes, `<blockquote>`s and
  * pasted originals are removed before anything is rendered.
  */
-function ThreadMessage({ email, expanded, view, onToggle, onViewChange, actions }) {
+function ThreadMessage({
+  email,
+  outgoing,
+  expanded,
+  view,
+  onToggle,
+  onViewChange,
+  actions,
+}) {
   const from = parseAddress(email.from_address);
   const to = parseAddress(email.to_address);
   const attachments = Array.isArray(email.attachments) ? email.attachments : [];
@@ -82,23 +104,39 @@ function ThreadMessage({ email, expanded, view, onToggle, onViewChange, actions 
   const bodyId = `thread-body-${email.id}`;
   const snippetText = messagePreview(email, 84);
 
+  /* Who the card speaks for. Our own mail says so — an outgoing reply is never
+     dressed up as something that arrived. */
+  const who = outgoing ? 'You' : from.display;
+  const avatarName = from.display;
+  const toLabel = to.name || to.address;
+  const meta = [
+    outgoing ? `to ${toLabel || 'recipient'}` : from.address || from.display,
+    formatFullTime(email.created_at),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   if (!expanded) {
     return (
       <button
         type="button"
         onClick={onToggle}
-        className="thread-bar glass glass-sheen"
+        className={`thread-bar glass glass-sheen ${outgoing ? 'is-outgoing' : ''}`}
         aria-expanded="false"
       >
-        <Avatar name={from.display} size="sm" />
+        <SenderMark outgoing={outgoing} name={avatarName} size="sm" />
         <span className="min-w-0 flex-1">
-          <span className="flex items-baseline gap-2">
-            <span className="thread-bar__name truncate">{from.display}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="thread-bar__name truncate">{who}</span>
+            {outgoing && <span className="thread-tag thread-tag--sent">Sent</span>}
             <time className="thread-bar__time ml-auto shrink-0" dateTime={email.created_at}>
               {formatListTime(email.created_at)}
             </time>
           </span>
-          <span className="thread-bar__snippet mt-0.5 block truncate">{snippetText}</span>
+          <span className="thread-bar__snippet mt-0.5 block truncate">
+            {outgoing && toLabel ? `To ${toLabel} · ` : ''}
+            {snippetText}
+          </span>
         </span>
         <ChevronDownIcon size={15} className="thread-bar__chevron" />
       </button>
@@ -106,18 +144,23 @@ function ThreadMessage({ email, expanded, view, onToggle, onViewChange, actions 
   }
 
   return (
-    <article className="mail-paper overflow-hidden rounded-2xl border border-[#27272a] bg-[#121216] p-5 text-[#f4f4f5] sm:p-6">
+    <article
+      className={`mail-paper overflow-hidden rounded-2xl border bg-[#121216] p-5 text-[#f4f4f5] sm:p-6 ${
+        outgoing ? 'border-purple-500/30' : 'border-[#27272a]'
+      }`}
+    >
       <span className="mail-paper__sheen" aria-hidden="true" />
 
       <header className="flex flex-wrap items-start gap-3">
-        <Avatar name={from.display} size="md" />
+        <SenderMark outgoing={outgoing} name={avatarName} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[0.86rem] font-semibold text-[#f4f4f5]">{from.display}</p>
-          <p className="mt-0.5 truncate text-[0.7rem] text-[#a1a1aa]">
-            {from.name && from.address ? `${from.address} · ` : ''}
-            {formatFullTime(email.created_at)}
-            {to.name || to.address ? ` · to ${to.name || to.address}` : ''}
+          <p className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-[0.86rem] font-semibold text-[#f4f4f5]">{who}</span>
+            <span className={`thread-tag ${outgoing ? 'thread-tag--sent' : 'thread-tag--received'}`}>
+              {outgoing ? 'Sent by you' : 'Received'}
+            </span>
           </p>
+          <p className="mt-0.5 truncate text-[0.7rem] text-[#a1a1aa]">{meta}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {actions}
@@ -197,6 +240,7 @@ function ThreadMessage({ email, expanded, view, onToggle, onViewChange, actions 
 export default function MailReader({
   thread,
   folder,
+  selfAddresses = [],
   label,
   busy,
   onReply,
@@ -253,12 +297,13 @@ export default function MailReader({
     setExpandedIds(allExpanded ? [] : messages.map((message) => message.id));
   };
 
-  /* In Sent the participants are all us; the conversation is named by the
-     people it was sent to. */
-  const threadNames =
-    folder === 'sent'
-      ? [parseAddress(latest.to_address).display]
-      : thread.participants;
+  /* A conversation belongs to the people it is with, not to us: the union of
+     senders and recipients across both sides, minus our own mailboxes. */
+  const threadNames = threadParticipants(thread, selfAddresses);
+  const threadLabel =
+    threadNames.length > 0
+      ? `${threadNames.slice(0, 2).join(', ')}${threadNames.length > 2 ? ` +${threadNames.length - 2}` : ''}`
+      : parseAddress(latest.from_address).display;
 
   const replyTarget = latest;
   const replyAddress = replyTarget.folder === 'sent' ? replyTarget.to_address : replyTarget.from_address;
@@ -359,12 +404,9 @@ export default function MailReader({
           </div>
 
           <div className="mail-byline">
-            <Avatar name={parseAddress(latest.from_address).display} size="md" />
+            <Avatar name={threadNames[0] || parseAddress(latest.from_address).display} size="md" />
             <div className="min-w-0">
-              <p className="truncate text-[0.82rem] font-semibold text-ink">
-                {threadNames.slice(0, 2).join(', ')}
-                {threadNames.length > 2 ? ` +${threadNames.length - 2}` : ''}
-              </p>
+              <p className="truncate text-[0.82rem] font-semibold text-ink">{threadLabel}</p>
               <p className="truncate text-[0.7rem] text-muted">
                 {thread.count} {thread.count === 1 ? 'message' : 'messages'} · last activity{' '}
                 {formatListTime(latest.created_at)}
@@ -389,6 +431,7 @@ export default function MailReader({
             <ThreadMessage
               key={email.id}
               email={email}
+              outgoing={isOutgoingMessage(email, selfAddresses)}
               expanded={expandedIds.includes(email.id)}
               view={views[email.id] || 'rendered'}
               onToggle={() => toggleMessage(email.id)}

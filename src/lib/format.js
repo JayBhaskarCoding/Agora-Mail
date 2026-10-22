@@ -34,6 +34,33 @@ export function displayName(value = '') {
   return parseAddress(value).display;
 }
 
+/**
+ * A recipient as the Sent list should show it: the name when the mailbox has
+ * one, otherwise the handle before the `@` — never the raw
+ * `"Rao, Meera" <meera@example.com>` string. The full address is kept for the
+ * quieter second line.
+ */
+export function recipientLabel(value = '') {
+  const { name, address } = parseAddress(value);
+  const mailbox = address || String(value || '').trim();
+
+  if (name) {
+    return {
+      primary: name,
+      secondary: mailbox && mailbox.toLowerCase() !== name.toLowerCase() ? mailbox : '',
+    };
+  }
+
+  if (!mailbox) return { primary: 'Unknown recipient', secondary: '' };
+
+  const at = mailbox.indexOf('@');
+  const handle = at > 0 ? mailbox.slice(0, at) : mailbox;
+  return {
+    primary: handle,
+    secondary: handle && handle !== mailbox ? mailbox : '',
+  };
+}
+
 /** One or two initials for the avatar bubble. */
 export function initials(value = '') {
   const { name, address, display } = parseAddress(value);

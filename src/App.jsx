@@ -173,9 +173,18 @@ export default function AgoraMail() {
 
       if (!silent) setLoading(true);
 
+      /* A conversation is both sides of the dialogue. Loading Inbox or Sent
+         therefore loads both pools in one query — `folder=in.(inbox,sent)` —
+         so a thread opened from either list carries the sent replies and the
+         incoming answers together. Trash is its own pool. */
+      const scope =
+        activeFolder === 'inbox' || activeFolder === 'sent'
+          ? 'in.(inbox,sent)'
+          : `eq.${activeFolder}`;
+
       try {
         const response = await fetch(
-          `${SUPABASE_URL}/rest/v1/emails?folder=eq.${encodeURIComponent(activeFolder)}&order=created_at.desc`,
+          `${SUPABASE_URL}/rest/v1/emails?folder=${encodeURIComponent(scope)}&order=created_at.desc`,
           {
             headers: {
               apikey: SUPABASE_ANON_KEY,
@@ -259,10 +268,16 @@ export default function AgoraMail() {
       return;
     }
 
+    /* Inbox and Sent share one pool, so switching between them keeps the rows
+       on screen while the list re-filters. Trash has its own pool. */
+    const shared =
+      (folder === 'inbox' || folder === 'sent') &&
+      (activeFolder === 'inbox' || activeFolder === 'sent');
+
     setActiveFolder(folder);
     setSelectedThreadKey(null);
     setSearchQuery('');
-    setEmails([]);
+    if (!shared) setEmails([]);
   };
 
   /* ---- Moving messages ---------------------------------------------- */
@@ -540,7 +555,8 @@ export default function AgoraMail() {
 
     if (result.ok) {
       pushToast('Reply sent.', 'success');
-      if (activeFolder === 'sent') fetchEmails();
+      /* Refresh so the reply joins the conversation on screen. */
+      fetchEmails({ silent: true });
     } else {
       pushToast(result.error || 'The reply could not be sent.', 'error');
     }
@@ -550,23 +566,36 @@ export default function AgoraMail() {
 
   /* ---- Derived ------------------------------------------------------- */
 
-  const filteredEmails = useMemo(() => {
+  /* Every conversation in the pool — both sides of the dialogue. */
+  const threads = useMemo(() => groupIntoThreads(emails), [emails]);
+
+  /* The list shows the conversations that have a message in the open folder;
+     the reader still gets the whole thread. */
+  const visibleThreads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return emails;
 
-    return emails.filter((email) =>
-      [email.from_address, email.to_address, email.subject, email.text_body].some((field) =>
-        String(field || '').toLowerCase().includes(query),
-      ),
-    );
-  }, [emails, searchQuery]);
+    return threads.filter((thread) => {
+      if (!thread.folders?.[activeFolder]) return false;
+      if (!query) return true;
 
-  /* One row per conversation, newest first. */
-  const threads = useMemo(() => groupIntoThreads(filteredEmails), [filteredEmails]);
+      return thread.emails.some((email) =>
+        [email.from_address, email.to_address, email.subject, email.text_body].some((field) =>
+          String(field || '').toLowerCase().includes(query),
+        ),
+      );
+    });
+  }, [threads, activeFolder, searchQuery]);
 
   const selectedThread = useMemo(
     () => threads.find((thread) => thread.key === selectedThreadKey) || null,
     [threads, selectedThreadKey],
+  );
+
+  /* Our own mailboxes, so the reader can tell a sent message from a received
+     one even when the row's folder is not the whole story. */
+  const selfAddresses = useMemo(
+    () => [SENDER_ADDRESS, session?.user?.email].filter(Boolean),
+    [session?.user?.email],
   );
 
   /* ---- Views --------------------------------------------------------- */
@@ -648,7 +677,8 @@ export default function AgoraMail() {
               <EmailList
                 folder={activeFolder}
                 label={folderLabel}
-                threads={threads}
+                threads={visibleThreads}
+                selfAddresses={selfAddresses}
                 loading={loading}
                 selectedId={selectedThreadKey}
                 searchQuery={searchQuery}
@@ -668,6 +698,7 @@ export default function AgoraMail() {
                    inline reply belong to one thread, not to the previous one. */
                 key={selectedThread?.key || 'no-conversation'}
                 thread={selectedThread}
+                selfAddresses={selfAddresses}
                 folder={activeFolder}
                 label={folderLabel}
                 busy={busy}

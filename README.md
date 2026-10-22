@@ -82,12 +82,26 @@ test/
 ## Behaviour notes
 
 - **Conversations, not messages.** Rows are grouped by normalised subject — `Re:`,
-  `Fwd:` and extra whitespace removed — and shown as one row with a `(5)` badge when the
-  thread holds more than one message. Messages with no subject are never merged. A
-  conversation is ordered oldest message first and sorts in the list by its newest
-  message. Opening it marks every unread message in the thread as read, as Gmail does.
-  Grouping happens inside the folder being viewed, because each row belongs to exactly
-  one folder.
+  `Fwd:` and extra whitespace removed — and shown as one row with a violet `(5)` pill and
+  a stacked-layers icon when the thread holds more than one message. Messages with no
+  subject are never merged.
+- **One pool, both sides.** Inbox and Sent load together with
+  `folder=in.(inbox,sent)`, so a conversation is the complete dialogue: what arrived and
+  what you sent, interleaved by `created_at` ascending. The list shows a conversation in
+  each folder it touches — the same thread can appear in both — while the reader always
+  gets every message. Each conversation is ordered oldest first and sorts by its newest
+  message; opening it marks every unread message in it as read, as Gmail does, and
+  switching between Inbox and Sent keeps the loaded rows on screen.
+- **Ours and theirs.** Messages are classified as outgoing by folder or by sender
+  (`mail@agora.in.net`, or the signed-in mailbox). Outgoing cards are ruled
+  `border-purple-500/30`, name the author as *You* with a violet *Sent by you* tag, and
+  summarise as *Sent · To Meera…* when collapsed; incoming cards keep the sender's name
+  and avatar and carry a quiet *Received* tag. Everyone else in the thread is listed in
+  the header, deduplicated by address, never including your own mailboxes.
+- **Sent rows name a person.** `Name <email@domain>` shows `To: Name` with the address
+  in smaller muted type beside it; a bare address shows the handle before the `@`
+  (`To: jayvardhanbhaskar123`) and the full address in the tooltip. The name, address and
+  timestamp all truncate independently, so nothing collides as the pane narrows.
 - **The reader is a stack.** The newest message is open on the dark card; older ones are
   summary bars with sender, snippet and time that expand in place. A conversation offers
   *Expand all* / *Collapse all*, and each open message keeps its own Rendered / Plain-text

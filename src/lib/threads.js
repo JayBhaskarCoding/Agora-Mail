@@ -15,6 +15,8 @@ import {
   cleanPreview,
   cleanSubject,
   displayName,
+  extractEmailAddress,
+  parseAddress,
   snippet,
   trimLeadingSubject,
 } from './format.js';
@@ -39,6 +41,69 @@ export function threadKeyFor(subject) {
 export function replySubject(value = '') {
   const base = normaliseSubject(value);
   return base === NO_SUBJECT ? 'Re:' : `Re: ${base}`;
+}
+
+const folderOf = (email) => email?.folder || 'inbox';
+
+/**
+ * Is this message one of ours?
+ *
+ * A Sent row is ours by definition. Mail that arrives back from the sender
+ * worker is authored by us too, so the sending mailbox is checked as well —
+ * a copy that landed in the inbox is still ours.
+ */
+export function isOutgoingMessage(email, selfAddresses = []) {
+  if (!email) return false;
+  if (folderOf(email) === 'sent') return true;
+
+  const from = extractEmailAddress(email.from_address).toLowerCase();
+  if (!from) return false;
+  if (from === 'mail@agora.in.net') return true;
+
+  return selfAddresses
+    .map((address) => extractEmailAddress(address).toLowerCase())
+    .filter(Boolean)
+    .includes(from);
+}
+
+/**
+ * Everyone on the other side of a conversation: for incoming mail that is the
+ * sender, for ours it is the recipient. Our own names are never listed.
+ */
+export function threadParticipants(thread, selfAddresses = []) {
+  const self = new Set(
+    selfAddresses.map((address) => extractEmailAddress(address).toLowerCase()).filter(Boolean),
+  );
+
+  /* Deduplicate by address: the same person can arrive as "Meera Rao
+     <meera@…>" on one message and "Meera <meera@…>" on the next. */
+  const people = new Map();
+
+  for (const email of thread?.emails || []) {
+    const outgoing = isOutgoingMessage(email, selfAddresses);
+    const value = outgoing ? email.to_address : email.from_address;
+    const { name, address, display } = parseAddress(value);
+    const key = address.toLowerCase();
+
+    if (!key || self.has(key)) continue;
+
+    const known = people.get(key);
+    if (!known || (!known.named && name)) {
+      people.set(key, { display, named: Boolean(name) });
+    }
+  }
+
+  return [...people.values()].map((person) => person.display);
+}
+
+/**
+ * Who a Sent conversation is addressed to: the recipient of the most recent
+ * message we sent, as parts rather than a raw mailbox string.
+ */
+export function threadRecipient(thread) {
+  const sent = (thread?.emails || []).filter((email) => folderOf(email) === 'sent');
+  const raw = (sent[sent.length - 1] || thread?.latest)?.to_address || '';
+  return { ...parseAddress(raw), raw };
 }
 
 const timestamp = (email) => {
@@ -87,13 +152,23 @@ export function groupIntoThreads(emails = []) {
         }
       }
 
+      /* How many messages the conversation has in each folder decides where
+         it is listed; the messages themselves always travel together. */
+      const folders = ordered.reduce((counts, message) => {
+        const folder = folderOf(message);
+        counts[folder] = (counts[folder] || 0) + 1;
+        return counts;
+      }, {});
+
       return {
         key,
         subject,
         emails: ordered,
         latest,
         count: ordered.length,
-        unread: ordered.filter((message) => !message.is_read).length,
+        folders,
+        /* Sent mail is never "unread" — only what arrived is. */
+        unread: ordered.filter((message) => !message.is_read && folderOf(message) !== 'sent').length,
         participants,
         lastActivity: timestamp(latest),
       };

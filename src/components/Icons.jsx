@@ -115,6 +115,17 @@ export function ReplyIcon(props) {
   );
 }
 
+/** Stacked layers: the mark for a conversation that holds several messages. */
+export function ThreadIcon(props) {
+  return (
+    <Icon {...props}>
+      <path d="M12 3 3 7.5l9 4.5 9-4.5L12 3Z" />
+      <path d="m3 12.5 9 4.5 9-4.5" />
+      <path d="m3 17 9 4.5 9-4.5" />
+    </Icon>
+  );
+}
+
 export function ChevronDownIcon(props) {
   return (
     <Icon {...props}>

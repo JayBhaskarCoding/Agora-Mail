@@ -7,11 +7,14 @@ import {
   NO_SUBJECT,
   extractMessageHtml,
   groupIntoThreads,
+  isOutgoingMessage,
   messagePreview,
   normaliseSubject,
   replySubject,
   stripQuotedHtml,
   stripQuotedText,
+  threadParticipants,
+  threadRecipient,
 } from '../src/lib/threads.js';
 
 const message = (id, subject, created, extra = {}) => ({
@@ -133,6 +136,124 @@ test('empty input is handled', () => {
   assert.deepEqual(groupIntoThreads([]), []);
   assert.deepEqual(groupIntoThreads(undefined), []);
   assert.deepEqual(groupIntoThreads([null, undefined]), []);
+});
+
+/* ---- both sides of the dialogue --------------------------------------- */
+
+const sentPiece = (id, subject, created, to, extra = {}) =>
+  message(id, subject, created, {
+    folder: 'sent',
+    from_address: 'mail@agora.in.net',
+    to_address: to,
+    ...extra,
+  });
+
+test('sent and received messages of one subject form one conversation', () => {
+  const threads = groupIntoThreads([
+    message('1', 'Q3 deck', '2026-10-20T09:00:00Z'),
+    sentPiece('2', 'Re: Q3 deck', '2026-10-20T10:00:00Z', 'Meera <meera@example.com>'),
+    message('3', 'Re: Q3 deck', '2026-10-20T11:00:00Z'),
+  ]);
+
+  assert.equal(threads.length, 1);
+  assert.deepEqual(
+    threads[0].emails.map((email) => email.id),
+    ['1', '2', '3'],
+  );
+  assert.deepEqual(threads[0].emails.map((email) => email.folder), ['inbox', 'sent', 'inbox']);
+  assert.equal(threads[0].count, 3);
+});
+
+test('a conversation lists in each folder it touches, with one count', () => {
+  const [thread] = groupIntoThreads([
+    message('1', 'Plan', '2026-10-20T09:00:00Z'),
+    sentPiece('2', 'Re: Plan', '2026-10-20T10:00:00Z', 'Meera <meera@example.com>'),
+    sentPiece('3', 'Re: Plan', '2026-10-20T11:00:00Z', 'Meera <meera@example.com>'),
+  ]);
+
+  assert.deepEqual(thread.folders, { inbox: 1, sent: 2 });
+  assert.equal(thread.count, 3, 'the badge counts both sides');
+});
+
+test('only incoming mail counts as unread', () => {
+  const [thread] = groupIntoThreads([
+    message('1', 'Plan', '2026-10-20T09:00:00Z', { is_read: false }),
+    sentPiece('2', 'Re: Plan', '2026-10-20T10:00:00Z', 'Meera <meera@example.com>', {
+      is_read: false,
+    }),
+  ]);
+
+  assert.equal(thread.unread, 1);
+});
+
+test('our own messages are recognised however they come back', () => {
+  const self = ['jay@agora.in.net'];
+  assert.equal(
+    isOutgoingMessage({ folder: 'sent', from_address: 'Jay <jay@agora.in.net>' }, self),
+    true,
+  );
+  assert.equal(
+    isOutgoingMessage({ folder: 'inbox', from_address: 'mail@agora.in.net' }, self),
+    true,
+    'the sender worker’s copy is ours',
+  );
+  assert.equal(
+    isOutgoingMessage({ folder: 'inbox', from_address: 'Jay <jay@agora.in.net>' }, self),
+    true,
+    'our own mailbox is ours',
+  );
+  assert.equal(
+    isOutgoingMessage({ folder: 'inbox', from_address: 'Meera <meera@example.com>' }, self),
+    false,
+  );
+});
+
+test('the people named are the other side, never us', () => {
+  const self = ['jay@agora.in.net'];
+  const [thread] = groupIntoThreads([
+    message('1', 'Plan', '2026-10-20T09:00:00Z', {
+      from_address: 'Meera Rao <meera@example.com>',
+    }),
+    sentPiece('2', 'Re: Plan', '2026-10-20T10:00:00Z', 'Jay <jay@agora.in.net>', {
+      from_address: 'Jay <jay@agora.in.net>',
+    }),
+    sentPiece('3', 'Re: Plan', '2026-10-20T11:00:00Z', 'Meera <meera@example.com>', {
+      from_address: 'Jay <jay@agora.in.net>',
+    }),
+  ]);
+
+  /* The recipient of our reply and the sender of theirs are the same
+     address, so they resolve to one person with the fuller name. */
+  assert.deepEqual(threadParticipants(thread, self), ['Meera Rao']);
+});
+
+test('the same person is named once, preferably with their full name', () => {
+  const self = ['jay@agora.in.net'];
+  const [thread] = groupIntoThreads([
+    message('1', 'Plan', '2026-10-20T09:00:00Z', {
+      from_address: 'Meera Rao <meera@example.com>',
+    }),
+    message('2', 'Re: Plan', '2026-10-20T10:00:00Z', {
+      from_address: 'Meera <meera@example.com>',
+    }),
+    message('3', 'Re: Plan', '2026-10-20T11:00:00Z', {
+      from_address: '<meera@example.com>',
+    }),
+  ]);
+
+  assert.deepEqual(threadParticipants(thread, self), ['Meera Rao']);
+});
+
+test('a Sent row names the person the last message went to', () => {
+  const [thread] = groupIntoThreads([
+    sentPiece('1', 'Plan', '2026-10-20T09:00:00Z', 'Arjun <arjun@example.com>'),
+    sentPiece('2', 'Re: Plan', '2026-10-20T10:00:00Z', 'Meera Rao <meera@example.com>'),
+  ]);
+
+  const recipient = threadRecipient(thread);
+  assert.equal(recipient.raw, 'Meera Rao <meera@example.com>');
+  assert.equal(recipient.name, 'Meera Rao');
+  assert.equal(recipient.address, 'meera@example.com');
 });
 
 /* ---- only the new message --------------------------------------------- */
