@@ -68,7 +68,7 @@ src/
     Toasts.jsx          transient confirmations
     Brand.jsx           wordmark, logo mark, avatars
     Icons.jsx           stroke icon set
-  lib/format.js         addresses, dates, snippets, escaping
+  lib/format.js         addresses, reply targets, dates, snippets, escaping
   lib/emailTheme.js     re-tones inbound HTML for the dark reading card
   lib/teaser.js         writes the inbox teaser (preheader) from a message
   lib/threads.js        conversation grouping, quote stripping, row previews
@@ -134,6 +134,15 @@ test/
 - **Replying stays in context.** Each conversation ends with an inline reply box that
   names the recipient and the `Re:` subject it will send, and posts through the same
   `sendMessage` path as the composer — same envelope, text part, teaser and worker.
+- **Reply goes where the message asks.** `replyAddressFor()` in `lib/format.js` resolves
+  a message's target: its `reply_to` — or `replyTo` — when that header holds a usable
+  address, otherwise its sender. That covers the lists and no-reply senders that route
+  answers elsewhere. A header stored as `Name <address>`, as a comma-separated list, as
+  an array, as JSON, or HTML-escaped all resolve to the first real address; anything
+  unusable (blank, `[]`, `<>`, a bare name) falls back rather than leaving the composer
+  empty. A message we sent carries no Reply-To to honour, so it still replies to its
+  recipient. The reader header's *Reply*, the inline reply box and the `To` line it shows
+  all read the same function, so they cannot disagree about who will receive the reply.
 - **List previews** draw once from the text part (falling back to the HTML), drop the
   subject when the body opens by repeating it, and cut at 65 characters, so a row never
   shows the same line twice.

@@ -34,6 +34,126 @@ export function displayName(value = '') {
   return parseAddress(value).display;
 }
 
+/* A mailbox is `Name <addr>` or a bare address. Anything else — an empty
+   string, `[]`, a template placeholder, the word "null" — is not a target
+   worth sending to. A dot is not required, so a list on an internal domain
+   still counts. */
+const MAILBOX = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+$/;
+
+/** Split a header value on the commas between addresses, leaving the commas
+    inside `"Rao, Meera" <meera@x.dev>` where they belong. */
+function splitMailboxes(raw = '') {
+  const parts = [];
+  let current = '';
+  let quoted = false;
+  let angled = false;
+
+  for (const char of String(raw)) {
+    if (char === '"') quoted = !quoted;
+    else if (!quoted && char === '<') angled = true;
+    else if (!quoted && char === '>') angled = false;
+
+    if (char === ',' && !quoted && !angled) {
+      parts.push(current);
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  parts.push(current);
+  return parts;
+}
+
+/** The candidate as a clean `Name <address>` or bare address, or '' when its
+    address half is not an address at all. */
+function usableMailbox(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+
+  const angled = raw.match(/^(.*?)<([^>]+)>/);
+  const address = (angled ? angled[2] : raw).trim().replace(/^["']|["']$/g, '');
+  if (!MAILBOX.test(address)) return '';
+
+  if (!angled) return address;
+
+  const name = angled[1].trim().replace(/^["']|["']$/g, '').trim();
+  return name ? `${name} <${address}>` : address;
+}
+
+/**
+ * The first address in a Reply-To value that can be replied to.
+ *
+ * Mail clients store that header in whichever shape they were handed: a bare
+ * address, a `Name <address>` mailbox, a comma-separated header, or — through
+ * some imports — an array or a JSON string of one. Returns the mailbox as
+ * written (so its display name survives) or '' when there is nothing usable.
+ */
+export function firstMailbox(value) {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const found = firstMailbox(entry);
+      if (found) return found;
+    }
+    return '';
+  }
+
+  if (value === null || value === undefined) return '';
+
+  /* Headers arrive HTML-escaped often enough (`List &lt;list@x.dev&gt;`)
+     that decoding first is the difference between a usable target and a
+     fallback. */
+  const raw = decodeEntities(String(value)).trim();
+  if (!raw) return '';
+
+  if (raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw);
+      const found = firstMailbox(parsed);
+      if (found) return found;
+    } catch {
+      /* not JSON after all — treat it as a plain header value */
+    }
+  }
+
+  for (const part of splitMailboxes(raw)) {
+    const usable = usableMailbox(part);
+    if (usable) return usable;
+  }
+
+  return '';
+}
+
+/**
+ * Where a reply to this message should go.
+ *
+ * A message can name its own Reply-To — mailing lists, ticketing systems and
+ * no-reply dispatchers all do — and that beats the sender. A message we sent
+ * carries no such header to honour, so its reply belongs to the recipient,
+ * exactly as before. Anything unusable in `reply_to` falls back rather than
+ * leaving the composer without a recipient.
+ *
+ * The result is the mailbox as stored (`Name <address>` or a bare address);
+ * callers that need just the address pass it through `extractEmailAddress`.
+ */
+export function replyAddressFor(email = {}) {
+  const message = email || {};
+  const outgoing = message.folder === 'sent';
+  const fallback = outgoing ? message.to_address : message.from_address;
+
+  const candidates = outgoing
+    ? [fallback]
+    : [message.reply_to, message.replyTo, fallback];
+
+  for (const candidate of candidates) {
+    const usable = firstMailbox(candidate);
+    if (usable) return usable;
+  }
+
+  return String(fallback || '').trim();
+}
+
 /**
  * A recipient as the Sent list should show it: the name when the mailbox has
  * one, otherwise the handle before the `@` — never the raw

@@ -9,7 +9,7 @@ import Toasts, { useToasts } from './components/Toasts.jsx';
 import { BrandLockup } from './components/Brand.jsx';
 import Ambient from './components/Ambient.jsx';
 import { MenuIcon, PencilIcon } from './components/Icons.jsx';
-import { extractEmailAddress } from './lib/format.js';
+import { extractEmailAddress, replyAddressFor } from './lib/format.js';
 import { buildMessageBody, buildMessageText } from './lib/mailTemplate.js';
 import { generateAutoTeaser } from './lib/teaser.js';
 import { groupIntoThreads, replySubject, threadKeyFor } from './lib/threads.js';
@@ -555,12 +555,10 @@ export default function AgoraMail() {
 
   const openCompose = ({ replyTo = null } = {}) => {
     setReplyingTo(replyTo);
-    /* In Sent the message is ours, so the reply goes to its recipient. */
-    setTo(
-      replyTo
-        ? extractEmailAddress(replyTo.folder === 'sent' ? replyTo.to_address : replyTo.from_address)
-        : '',
-    );
+    /* Reply-To wins when the message names one — mailing lists and
+       no-reply senders use it to point elsewhere. A message we sent has no
+       such header to honour, so its reply goes to its recipient. */
+    setTo(replyTo ? extractEmailAddress(replyAddressFor(replyTo)) : '');
     setSubject(replyTo ? replySubject(replyTo.subject) : '');
     setBody('');
     setAttachments([]);
@@ -740,7 +738,9 @@ export default function AgoraMail() {
     if (!email) return { ok: false, error: 'There is no message to reply to.' };
 
     const result = await sendMessage({
-      to: email.folder === 'sent' ? email.to_address : email.from_address,
+      /* Same target as the header's Reply button, so the two can never send
+         to different people. */
+      to: replyAddressFor(email),
       subject: replySubject(email.subject),
       body: messageBody,
       replyingTo: email,

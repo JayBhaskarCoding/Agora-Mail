@@ -17,6 +17,7 @@ import {
   formatListTime,
   parseAddress,
   plainBody,
+  replyAddressFor,
   sanitizeEmailHtml,
 } from '../lib/format.js';
 import { themeEmailHtml } from '../lib/emailTheme.js';
@@ -308,7 +309,9 @@ export default function MailReader({
       : parseAddress(latest.from_address).display;
 
   const replyTarget = latest;
-  const replyAddress = replyTarget.folder === 'sent' ? replyTarget.to_address : replyTarget.from_address;
+  /* The address the reply will actually go to: Reply-To when the message
+     names one, otherwise its sender (or its recipient, in Sent). */
+  const replyAddress = replyAddressFor(replyTarget);
   const replyMailbox = parseAddress(replyAddress);
   const replyName = replyMailbox.display;
   const replyEmail = replyMailbox.address || replyAddress;
