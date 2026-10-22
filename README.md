@@ -106,12 +106,29 @@ test/
   summary bars with sender, snippet and time that expand in place. A conversation offers
   *Expand all* / *Collapse all*, and each open message keeps its own Rendered / Plain-text
   toggle.
-- **Only the new message is shown.** Before rendering, `lib/threads.js` strips the sender
-  worker's envelope (using its `<!-- Main Message Body -->` marker), hidden preheaders,
-  `data-reply-quote` blocks, nested `<blockquote>`s and anything after
-  `--- Original Message ---`; plain-text bodies are cut at `On … wrote:` or pasted
-  `From:/Sent:` headers. A message that *is* only a quote renders no body rather than a
-  fragment.
+- **Only the new message is shown.** Every card goes through one cleaner,
+  `stripReplyQuotes()` in `lib/threads.js`, which detects HTML or plain text and removes
+  what the client dragged along:
+  - the sender worker's envelope (its `<!-- Main Message Body -->` marker) and hidden
+    preheaders, before anything else runs;
+  - `<div data-reply-quote="true">` and everything after it;
+  - Gmail's `div.gmail_quote`, Outlook's `divRplyFwdMsg` / `appendonsend`, Yahoo's
+    `div#yahoo_quoted_*`, and nested `<blockquote>`s (innermost first, so no empty shells
+    are left);
+  - `--- Original Message ---` rules;
+  - `On … wrote:` attributions in any of the shapes mail clients write them — a date is
+    required when the attribution appears mid-message, so ordinary prose ("On that note,
+    I wrote…") is never mistaken for one; a line *ending* in `wrote:` is always cut.
+
+  Plain-text bodies lose the same things plus `>`-quoted runs and pasted
+  `From:/Sent:/Date:/To:` headers. A message that *is* only a quote renders no body rather
+  than a fragment, and list rows draw their preview from the same cleaned text.
+- **Outgoing mail carries no quoted history.** `buildMessageBody` / `buildMessageText`
+  append the original only when asked (`includeHistory: true`, kept for self-contained
+  copies); the composer and the inline reply never ask, so what leaves the worker is just
+  the message the sender typed. Agora shows the thread as stacked cards, and each
+  recipient's client threads it on its own — embedding the original is what used to
+  produce a quote banner inside a quote card.
 - **Replying stays in context.** Each conversation ends with an inline reply box that
   names the recipient and the `Re:` subject it will send, and posts through the same
   `sendMessage` path as the composer — same envelope, text part, teaser and worker.

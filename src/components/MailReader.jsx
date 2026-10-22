@@ -26,8 +26,7 @@ import {
   messagePreview,
   replySubject,
   stripPreheader,
-  stripQuotedHtml,
-  stripQuotedText,
+  stripReplyQuotes,
   threadParticipants,
 } from '../lib/threads.js';
 
@@ -84,7 +83,9 @@ function ThreadMessage({
   const newHtml = useMemo(
     () =>
       email.html_body
-        ? stripQuotedHtml(stripPreheader(extractMessageHtml(email.html_body)))
+        ? /* Envelope, hidden preheader, then whatever history the sender's
+             client left underneath — only this message's own words remain. */
+          stripReplyQuotes(stripPreheader(extractMessageHtml(email.html_body)))
         : '',
     [email.html_body],
   );
@@ -96,7 +97,7 @@ function ThreadMessage({
 
   const text = useMemo(() => {
     if (newHtml) return plainBody({ html: newHtml });
-    return plainBody({ text: stripQuotedText(email.text_body) });
+    return plainBody({ text: stripReplyQuotes(email.text_body) });
   }, [newHtml, email.text_body]);
 
   const hasHtml = Boolean(safeHtml);

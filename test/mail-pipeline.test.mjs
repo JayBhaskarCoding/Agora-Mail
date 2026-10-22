@@ -99,7 +99,13 @@ test('paragraphs are separated by newlines that survive tag-stripping', () => {
 });
 
 test('the reply quote carries the exact marker the worker splits on', () => {
-  const html = buildMessageBody({ body: 'Saturday works.', replyingTo: REPLY_TO });
+  /* Opt-in: the composer never embeds history, but the capability is kept and
+     has to stay byte-compatible with the worker's split. */
+  const html = buildMessageBody({
+    body: 'Saturday works.',
+    replyingTo: REPLY_TO,
+    includeHistory: true,
+  });
   /* The deployed worker does html.split('<div data-reply-quote="true"').
      The literal has to appear exactly, attribute first, no space between
      the tag name and the attribute. */
@@ -206,8 +212,11 @@ test('repo worker: reply preheader stops at the quote', async () => {
 });
 
 test('both workers: the quoted original is sanitised', () => {
+  /* Only the opt-in history path can carry a quote, so that is what is
+     checked here — and its sanitising still matters for old stored mail. */
   const html = buildMessageBody({
     body: 'ok',
+    includeHistory: true,
     replyingTo: {
       ...REPLY_TO,
       html_body: '<p onclick="steal()">hi</p><script>evil()</script><a href="javascript:evil()">x</a>',
@@ -263,11 +272,48 @@ test('the auto teaser becomes the preheader, and does not echo the body', async 
 });
 
 test('outgoing mail is light ink on the worker’s dark card', () => {
-  const html = buildMessageBody({ body: 'Hi Jay,\n\nSaturday works.', replyingTo: REPLY_TO });
+  const html = buildMessageBody({
+    body: 'Hi Jay,\n\nSaturday works.',
+    replyingTo: REPLY_TO,
+    includeHistory: true,
+  });
 
   assert.match(html, /color:#f4f4f5/);
   assert.doesNotMatch(html, /#111\b|#000\b/);
   assert.match(html, /data-reply-quote="true"/);
   assert.match(html, /border-left:3px solid #a855f7/);
   assert.match(html, /color:#a1a1aa/);
+});
+
+test('a reply sends the message, not the thread it answers', () => {
+  const html = buildMessageBody({ body: 'Saturday works.', replyingTo: REPLY_TO });
+  const text = buildMessageText({ body: 'Saturday works.', replyingTo: REPLY_TO });
+
+  /* No quoted banner, no attribution, no copy of the original — the reader
+     stacks the conversation instead, so embedding it would show it twice. */
+  assert.doesNotMatch(html, /data-reply-quote/);
+  assert.doesNotMatch(html, /wrote:/i);
+  assert.doesNotMatch(html, /Are we still on for Saturday/);
+  assert.equal(text, 'Saturday works.');
+  assert.match(html, /Saturday works\./);
+});
+
+test('the default send path through both workers carries no history', async () => {
+  const body = 'Saturday works.';
+  const html = buildMessageBody({ body, replyingTo: REPLY_TO });
+  const text = buildMessageText({ body, replyingTo: REPLY_TO });
+
+  for (const worker of [deployedWorker, repoWorker]) {
+    const { resend } = await deliver(worker, {
+      subject: 'Re: Weekend plans',
+      html,
+      text,
+      previewText: generateAutoTeaser(body, 'Re: Weekend plans', true),
+    });
+
+    assert.doesNotMatch(resend.html, /data-reply-quote/);
+    assert.doesNotMatch(resend.html, /Are we still on for Saturday/);
+    assert.match(resend.text, /Saturday works\./);
+    assert.doesNotMatch(resend.text, /wrote:|Are we still on/);
+  }
 });

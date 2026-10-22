@@ -228,34 +228,83 @@ export function stripPreheader(html = '') {
   );
 }
 
+/* ---- what a reply drags along ------------------------------------------
+   Quoted history arrives in a handful of shapes, and every mail client grew
+   its own. All of them are cut here, so a card only ever shows what its
+   author actually wrote. */
+
 const REPLY_QUOTE_TAG = /<[a-z]+\b[^>]*\bdata-reply-quote\b[^>]*>/i;
-const ORIGINAL_MARKER = /-{2,}\s*original message\s*-{2,}/i;
+const GMAIL_QUOTE = /<div\b[^>]*class="[^"]*\bgmail_quote\b[^"]*"[^>]*>/i;
+const OUTLOOK_QUOTE = /<div\b[^>]*\bid="(?:divRplyFwdMsg|appendonsend|mail-editor-reference-message-container)"[^>]*>/i;
+const YAHOO_QUOTE = /<div\b[^>]*\bid="yahoo_quoted_[^"]*"[^>]*>/i;
+const ORIGINAL_MARKER = /-{2,}\s*(?:original message|forwarded message)\s*-{2,}/i;
+
+/**
+ * "On Sat, 18 Oct 2025 at 10:04, Meera wrote:" and its relatives.
+ *
+ * A date is required — some digits between "On" and "wrote" — so ordinary
+ * prose ("On that note, I wrote:") is never mistaken for an attribution. The
+ * runs exclude angle brackets so a match cannot span markup.
+ */
+const ATTRIBUTION = /\bOn\s+[^<>]{0,220}?\d[^<>]{0,220}?wrote\s*:/i;
+
+/* A line ending in "wrote:" is an attribution even without a date left in it —
+   the quoted body underneath has already been removed by the time we look. */
+const TRAILING_ATTRIBUTION =
+  /(?:<p\b[^>]*>|<div\b[^>]*>)?[\s\S]{0,40}?\bOn\s[^<>]{0,240}?wrote\s*:\s*(?:<\/?(?:p|div)\b[^>]*>\s*)*$/i;
+
+const ATTRIBUTION_TEXT = /(?:^|\n)[ \t]*On\s[^\n]{0,240}?\d[^\n]{0,240}?wrote\s*:[ \t]*\n?/i;
+
+/* "On Sat, Meera wrote:" with no date, but a `>`-quoted body right under it. */
+const QUOTE_AFTER_ATTRIBUTION = /(?:^|\n)[ \t]*On\s[^\n]{0,240}?wrote\s*:[ \t]*\n\s*(?=>)/i;
+
+/**
+ * Everything this message holds is followed by a quoted history block, but a
+ * bare cut can orphan the tag the attribution sat in. When the only thing
+ * between a block tag and the cut is whitespace, the tag goes too.
+ */
+function cutAtBlock(source, index) {
+  if (index <= 0) return '';
+  const before = source.slice(0, index);
+  const opening = before.match(/<(?:p|div|span|blockquote)\b[^>]*>\s*$/i);
+  return opening ? before.slice(0, opening.index) : before;
+}
+
+/** The earliest of several cut points, or -1 when none matched. */
+function earliest(source, patterns) {
+  let cut = -1;
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (match && (cut === -1 || match.index < cut)) cut = match.index;
+  }
+  return cut;
+}
 
 /** Remove quoted originals from message HTML, keeping only the new text. */
 export function stripQuotedHtml(html = '') {
   let out = String(html || '');
 
-  /* Our own replies mark the quote; it is the last block of the fragment, so
-     everything from the marker on belongs to the old thread. */
-  const marked = out.search(REPLY_QUOTE_TAG);
-  if (marked >= 0) out = out.slice(0, marked);
-
-  const original = out.search(ORIGINAL_MARKER);
-  if (original >= 0) out = out.slice(0, original);
+  const hard = earliest(out, [
+    REPLY_QUOTE_TAG,
+    GMAIL_QUOTE,
+    OUTLOOK_QUOTE,
+    YAHOO_QUOTE,
+    ORIGINAL_MARKER,
+    ATTRIBUTION,
+  ]);
+  if (hard >= 0) out = cutAtBlock(out, hard);
 
   /* `<blockquote>` is how every mail client has quoted replies for decades.
      Strip the innermost first so nested quotes do not leave shells behind. */
   const innermost = /<blockquote\b[^>]*>(?:(?!<blockquote\b)[\s\S])*?<\/blockquote>/gi;
   while (innermost.test(out)) out = out.replace(innermost, '');
 
-  /* An attribution line without a wrapper ("On 3 May, Meera wrote:") is quote
-     chrome too, but only when it trails the message. */
-  out = out.replace(
-    /(?:<p\b[^>]*>|<div\b[^>]*>)?\s*On\s[\s\S]{0,300}?wrote:\s*(?:<\/p>|<\/div>)?\s*$/i,
-    '',
-  );
+  /* An attribution with no quoted body under it — a trailing line of chrome. */
+  const trailing = earliest(out, [TRAILING_ATTRIBUTION, ATTRIBUTION]);
+  if (trailing >= 0) out = cutAtBlock(out, trailing);
 
-  return out.trim();
+  /* A cut can leave the `<br>` that separated the message from the quote. */
+  return out.replace(/(?:<br\s*\/?>[\s\n]*)+$/i, '').trim();
 }
 
 /** Remove quoted originals from a plain-text body. */
@@ -263,10 +312,11 @@ export function stripQuotedText(text = '') {
   let out = String(text || '').replace(/\r\n/g, '\n');
 
   const markers = [
-    /-{2,}\s*original message\s*-{2,}/i,
-    /(?:^|\n)\s*On\s[^\n]{0,300}?wrote:\s*(?:\n|$)/i,
-    /(?:^|\n)\s*From:\s[^\n]*\n\s*(?:Sent|Date|To|Subject):/i,
-    /(?:^|\n)\s*_{8,}\s*(?:\n|$)/,
+    ORIGINAL_MARKER,
+    ATTRIBUTION_TEXT,
+    QUOTE_AFTER_ATTRIBUTION,
+    /(?:^|\n)[ \t]*From:\s[^\n]*\n\s*(?:Sent|Date|To|Subject):/i,
+    /(?:^|\n)[ \t]*_{8,}[ \t]*(?:\n|$)/,
   ];
 
   let cut = -1;
@@ -283,14 +333,34 @@ export function stripQuotedText(text = '') {
 }
 
 /**
+ * Clean a message body whatever it is: HTML gets tags and quote wrappers
+ * removed, plain text gets attribution lines and `>` blocks removed.
+ *
+ * Used on every card and every list preview, so a conversation never renders
+ * the same words twice — the stack itself provides the history.
+ */
+export function stripReplyQuotes(htmlOrText = '') {
+  const raw = String(htmlOrText ?? '');
+  if (!raw.trim()) return '';
+
+  /* A real tag, not an address in angle brackets: `<meera@example.com>` is
+     text, and treating it as HTML would skip the plain-text rules. */
+  const looksLikeHtml =
+    /<\/?(?:p|div|span|br|table|tbody|tr|td|a|blockquote|ul|ol|li|h[1-6]|b|i|u|em|strong|font|hr|img|html|body|head|meta|style)\b[^>]*>/i.test(
+      raw,
+    );
+  return looksLikeHtml ? stripQuotedHtml(raw) : stripQuotedText(raw);
+}
+
+/**
  * One line for a collapsed message bar or a list row: quote and envelope
  * removed, subject de-duplicated, whitespace collapsed.
  */
 export function messagePreview(email = {}, max = 90) {
   const html = email.html_body
-    ? stripQuotedHtml(extractMessageHtml(email.html_body))
+    ? stripReplyQuotes(stripPreheader(extractMessageHtml(email.html_body)))
     : '';
-  const text = email.text_body ? stripQuotedText(email.text_body) : '';
+  const text = email.text_body ? stripReplyQuotes(email.text_body) : '';
   const source = text || html || email.html_body || '';
 
   return snippet(trimLeadingSubject(cleanPreview(source), email.subject), max);

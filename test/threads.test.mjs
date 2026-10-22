@@ -13,6 +13,7 @@ import {
   replySubject,
   stripQuotedHtml,
   stripQuotedText,
+  stripReplyQuotes,
   threadParticipants,
   threadRecipient,
 } from '../src/lib/threads.js';
@@ -254,6 +255,83 @@ test('a Sent row names the person the last message went to', () => {
   assert.equal(recipient.raw, 'Meera Rao <meera@example.com>');
   assert.equal(recipient.name, 'Meera Rao');
   assert.equal(recipient.address, 'meera@example.com');
+});
+
+/* ---- the one cleaner every card goes through --------------------------- */
+
+test('stripReplyQuotes cuts at a data-reply-quote div wherever it sits', () => {
+  assert.equal(
+    stripReplyQuotes('<p>Thanks!</p><div data-reply-quote="true"><p>old thread</p></div>'),
+    '<p>Thanks!</p>',
+  );
+});
+
+test('stripReplyQuotes removes "On … wrote:" attributions of every shape', () => {
+  const bodies = [
+    '<p>Thanks!</p><p>On Mon, Oct 20, 2025 at 10:04 AM Meera &lt;m@e.com&gt; wrote:</p><p>old</p>',
+    '<p>Thanks!</p><p>On Sat, 18 Oct 2025 at 10:04, Meera Rao wrote:</p><p>old</p>',
+    '<p>Thanks!</p><p>On 20 Oct 2025 10:04 Meera wrote:</p><p>old</p>',
+    '<div>Thanks!<br>On Mon, Oct 20, 2025 at 10:04 AM Meera &lt;m@e.com&gt; wrote:<br>old</div>',
+  ];
+
+  for (const body of bodies) {
+    const clean = stripReplyQuotes(body);
+    assert.match(clean, /Thanks!/, clean);
+    assert.doesNotMatch(clean, /wrote:|\bold\b/i, clean);
+  }
+});
+
+test('stripReplyQuotes clears Gmail, Outlook and Yahoo wrappers', () => {
+  const wrappers = [
+    '<p>Mine.</p><div class="gmail_quote"><div>old</div></div>',
+    '<p>Mine.</p><div id="divRplyFwdMsg"><b>From:</b> Meera</div><p>old</p>',
+    '<p>Mine.</p><div id="appendonsend"></div><p>old</p>',
+    '<p>Mine.</p><div id="yahoo_quoted_7123"><p>old</p></div>',
+  ];
+
+  for (const body of wrappers) {
+    const clean = stripReplyQuotes(body);
+    assert.equal(clean.includes('old'), false, clean);
+    assert.match(clean, /Mine/, clean);
+  }
+});
+
+test('stripReplyQuotes never mistakes prose for an attribution', () => {
+  const prose = '<p>On that note, I wrote: the deck is ready.</p>';
+  assert.equal(stripReplyQuotes(prose), prose);
+
+  const text = 'On that note, I wrote: the deck is ready.';
+  assert.equal(stripReplyQuotes(text), text);
+});
+
+test('stripReplyQuotes handles plain text with and without a date', () => {
+  assert.equal(
+    stripReplyQuotes('Saturday works.\n\nOn Mon, Oct 20, 2025 at 10:04 AM Meera wrote:\n> old'),
+    'Saturday works.',
+  );
+  assert.equal(
+    stripReplyQuotes('Saturday works.\n\nOn Sat, Meera wrote:\n\n> old'),
+    'Saturday works.',
+  );
+  assert.equal(
+    stripReplyQuotes('Answer.\n\n-----Original Message-----\nFrom: Meera\nSent: Saturday'),
+    'Answer.',
+  );
+});
+
+test('stripReplyQuotes tells an address in brackets from markup', () => {
+  /* `<meera@example.com>` is not a tag: the plain-text rules must still run. */
+  assert.equal(
+    stripReplyQuotes('Fine.\n\nOn Mon, Oct 20, 2025 at 10:04 AM <meera@example.com> wrote:\n> old'),
+    'Fine.',
+  );
+});
+
+test('stripReplyQuotes leaves a clean message untouched', () => {
+  const html = '<p>Hi Jay,</p><p>The deck is ready.</p>';
+  assert.equal(stripReplyQuotes(html), html);
+  assert.equal(stripReplyQuotes('Hi Jay,\n\nThe deck is ready.'), 'Hi Jay,\n\nThe deck is ready.');
+  assert.equal(stripReplyQuotes(''), '');
 });
 
 /* ---- only the new message --------------------------------------------- */

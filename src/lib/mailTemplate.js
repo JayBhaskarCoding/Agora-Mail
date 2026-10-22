@@ -111,18 +111,24 @@ function quoteBlock(replyingTo) {
 /**
  * The message fragment the worker wraps.
  *
+ * Only the message itself: quoted history is *not* pasted underneath it. The
+ * sender's own client threads the conversation, and every quote we embed here
+ * came back twice — once as the card's footer and once as the next card's
+ * stripped remnant. `includeHistory` exists for callers that genuinely need a
+ * self-contained message (a printed copy, say), never for the composer.
+ *
  * @param {object}  options
- * @param {string}  options.body        Plain-text body typed in the composer.
- * @param {object=} options.replyingTo  The message being replied to, if any.
+ * @param {string}  options.body            Plain-text body typed in the composer.
+ * @param {object=} options.replyingTo      The message being replied to, if any.
+ * @param {boolean} [options.includeHistory] Append the quoted original. Off.
  */
-export function buildMessageBody({ body, replyingTo } = {}) {
+export function buildMessageBody({ body, replyingTo, includeHistory = false } = {}) {
   /* The wrapper carries the card's ink and typeface, so anything the fragment
      grows later inherits light text instead of the mail client's default
      black — the worker's card is #121216 in every client. */
-  return (
-    `<div style="font-family:${FONT_SANS};color:${MAIL_BRAND.body};">` +
-    `${renderText(body)}${replyingTo ? quoteBlock(replyingTo) : ''}</div>`
-  );
+  const quote = includeHistory && replyingTo ? quoteBlock(replyingTo) : '';
+
+  return `<div style="font-family:${FONT_SANS};color:${MAIL_BRAND.body};">${renderText(body)}${quote}</div>`;
 }
 
 /**
@@ -130,11 +136,11 @@ export function buildMessageBody({ body, replyingTo } = {}) {
  *
  * The worker prefers this over deriving one from the HTML, so notification
  * previews and "show original" carry the letter rather than the card's
- * chrome.
+ * chrome. History follows the same rule as the HTML: absent unless asked for.
  */
-export function buildMessageText({ body, replyingTo } = {}) {
+export function buildMessageText({ body, replyingTo, includeHistory = false } = {}) {
   const text = String(body || '').replace(/\r\n/g, '\n').trim();
-  if (!replyingTo) return text;
+  if (!includeHistory || !replyingTo) return text;
 
   const when = new Date(replyingTo.created_at);
   const stamp = Number.isNaN(when.getTime())

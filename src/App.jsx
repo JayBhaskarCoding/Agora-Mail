@@ -445,9 +445,14 @@ export default function AgoraMail() {
       const recipient = extractEmailAddress(recipientInput);
 
       /* The worker owns the envelope (card, brand row, footer, preheader);
-         this is just the message it wraps. */
-      const finalHtml = buildMessageBody({ body: messageBody, replyingTo: replyTarget });
-      const finalText = buildMessageText({ body: messageBody, replyingTo: replyTarget });
+         this is just the message it wraps.
+
+         Quoted history is deliberately *not* appended here. Each client
+         threads the conversation for itself, and embedding the original
+         underneath the reply is what produced nested quote banners in the
+         first place — Agora shows the thread as stacked cards instead. */
+      const finalHtml = buildMessageBody({ body: messageBody });
+      const finalText = buildMessageText({ body: messageBody });
       /* The teaser is written here, not by the sender: it has to differ from
          the words the body opens with, or the inbox line stutters. */
       const autoPreview = generateAutoTeaser(
