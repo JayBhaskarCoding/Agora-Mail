@@ -866,6 +866,24 @@
     font-weight: 700;
   }
 
+  /* How many messages the conversation holds, Gmail's "(5)". */
+  .mail-row__count {
+    flex: none;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.6rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--text-faint);
+  }
+
+  .mail-row.is-unread .mail-row__count {
+    color: var(--accent);
+  }
+
+  .mail-row.is-selected .mail-row__count {
+    color: var(--lavender);
+  }
+
   .mail-row__time {
     flex: none;
     font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -993,6 +1011,136 @@
     border-top: 1px solid rgb(var(--line-rgb) / 0.07);
     font-size: 0.78rem;
     color: var(--text-dim);
+  }
+
+  /* ---- a conversation -------------------------------------------------
+     Gmail's stack: older messages fold into summary bars, the newest one
+     stays open on the dark card. */
+
+  .thread-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+
+  .thread-bar {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 0.9rem;
+    border-radius: 1.1rem;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.2s var(--ease), background-color 0.2s var(--ease),
+      transform 0.2s var(--ease);
+  }
+
+  .thread-bar:hover {
+    border-color: var(--glass-border-strong);
+    background-color: var(--glass-fill-strong);
+    transform: translateY(-1px);
+  }
+
+  .thread-bar:focus-visible {
+    outline: 2px solid rgb(var(--accent-rgb) / 0.65);
+    outline-offset: 2px;
+  }
+
+  .thread-bar__name {
+    color: var(--text);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .thread-bar__snippet {
+    color: var(--text-dim);
+    font-size: 0.76rem;
+    line-height: 1.5;
+    opacity: 0.8;
+  }
+
+  .thread-bar__time {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.56rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .thread-bar__chevron {
+    flex: none;
+    color: var(--text-faint);
+    transition: color 0.2s var(--ease), transform 0.2s var(--ease);
+  }
+
+  .thread-bar:hover .thread-bar__chevron {
+    color: var(--text);
+    transform: translateY(1px);
+  }
+
+  .thread-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.85rem;
+    height: 1.85rem;
+    border: 1px solid transparent;
+    border-radius: 9999px;
+    color: var(--text-faint);
+    cursor: pointer;
+    transition: color 0.2s var(--ease), background-color 0.2s var(--ease),
+      border-color 0.2s var(--ease);
+  }
+
+  .thread-icon-btn:hover {
+    border-color: var(--glass-border);
+    background-color: var(--glass-tint);
+    color: var(--text);
+  }
+
+  .thread-icon-btn:focus-visible {
+    outline: 2px solid rgb(var(--accent-rgb) / 0.65);
+    outline-offset: 2px;
+  }
+
+  /* The empty reply invitation at the foot of a conversation. */
+  .thread-reply {
+    border-radius: 1.25rem;
+    padding: 0.85rem 1rem;
+  }
+
+  .thread-reply__open {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.4rem 0.25rem;
+    border: 0;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: color 0.2s var(--ease);
+  }
+
+  .thread-reply__open:hover {
+    color: var(--text-bright);
+  }
+
+  .thread-reply__open svg {
+    color: var(--accent);
+  }
+
+  .thread-reply__open:focus-visible {
+    outline: 2px solid rgb(var(--accent-rgb) / 0.65);
+    outline-offset: 2px;
+    border-radius: 0.75rem;
   }
 
   /* The reading surface: the app's own dark card (#121216 / #27272a) rather

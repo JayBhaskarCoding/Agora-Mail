@@ -1,21 +1,32 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Avatar, Wordmark } from './Brand.jsx';
 import {
   ArrowLeftIcon,
+  ChevronDownIcon,
   PaperclipIcon,
   PencilIcon,
   ReplyIcon,
   RestoreIcon,
+  Spinner,
   TrashIcon,
+  XIcon,
 } from './Icons.jsx';
 import {
-  cleanSubject,
   formatFullTime,
+  formatListTime,
   parseAddress,
   plainBody,
   sanitizeEmailHtml,
 } from '../lib/format.js';
 import { themeEmailHtml } from '../lib/emailTheme.js';
+import {
+  extractMessageHtml,
+  messagePreview,
+  replySubject,
+  stripPreheader,
+  stripQuotedHtml,
+  stripQuotedText,
+} from '../lib/threads.js';
 
 function ReaderEmpty({ onCompose }) {
   return (
@@ -25,9 +36,9 @@ function ReaderEmpty({ onCompose }) {
           <Wordmark className="text-[2.1rem]" />
         </div>
         <p className="micro mt-4">Agora Mail</p>
-        <h2 className="mt-2 text-base font-semibold text-ink">Select a message</h2>
+        <h2 className="mt-2 text-base font-semibold text-ink">Select a conversation</h2>
         <p className="mx-auto mt-1.5 max-w-[16rem] text-sm leading-relaxed text-muted">
-          Pick a message from the list to read it here — or start a new one.
+          Pick a conversation from the list to read it here — or start a new one.
         </p>
         <button type="button" onClick={onCompose} className="btn btn--ghost btn--sm mt-6">
           <PencilIcon size={14} />
@@ -38,100 +49,293 @@ function ReaderEmpty({ onCompose }) {
   );
 }
 
+/**
+ * One message in the stack. The body shown is only what this message added:
+ * the sender worker's envelope, marked reply quotes, `<blockquote>`s and
+ * pasted originals are removed before anything is rendered.
+ */
+function ThreadMessage({ email, expanded, view, onToggle, onViewChange, actions }) {
+  const from = parseAddress(email.from_address);
+  const to = parseAddress(email.to_address);
+  const attachments = Array.isArray(email.attachments) ? email.attachments : [];
+
+  const newHtml = useMemo(
+    () =>
+      email.html_body
+        ? stripQuotedHtml(stripPreheader(extractMessageHtml(email.html_body)))
+        : '',
+    [email.html_body],
+  );
+
+  const safeHtml = useMemo(
+    () => (newHtml ? themeEmailHtml(sanitizeEmailHtml(newHtml)) : ''),
+    [newHtml],
+  );
+
+  const text = useMemo(() => {
+    if (newHtml) return plainBody({ html: newHtml });
+    return plainBody({ text: stripQuotedText(email.text_body) });
+  }, [newHtml, email.text_body]);
+
+  const hasHtml = Boolean(safeHtml);
+  const rendered = view !== 'text' && hasHtml;
+  const bodyId = `thread-body-${email.id}`;
+  const snippetText = messagePreview(email, 84);
+
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        className="thread-bar glass glass-sheen"
+        aria-expanded="false"
+      >
+        <Avatar name={from.display} size="sm" />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-2">
+            <span className="thread-bar__name truncate">{from.display}</span>
+            <time className="thread-bar__time ml-auto shrink-0" dateTime={email.created_at}>
+              {formatListTime(email.created_at)}
+            </time>
+          </span>
+          <span className="thread-bar__snippet mt-0.5 block truncate">{snippetText}</span>
+        </span>
+        <ChevronDownIcon size={15} className="thread-bar__chevron" />
+      </button>
+    );
+  }
+
+  return (
+    <article className="mail-paper overflow-hidden rounded-2xl border border-[#27272a] bg-[#121216] p-5 text-[#f4f4f5] sm:p-6">
+      <span className="mail-paper__sheen" aria-hidden="true" />
+
+      <header className="flex flex-wrap items-start gap-3">
+        <Avatar name={from.display} size="md" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[0.86rem] font-semibold text-[#f4f4f5]">{from.display}</p>
+          <p className="mt-0.5 truncate text-[0.7rem] text-[#a1a1aa]">
+            {from.name && from.address ? `${from.address} · ` : ''}
+            {formatFullTime(email.created_at)}
+            {to.name || to.address ? ` · to ${to.name || to.address}` : ''}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {actions}
+          <button
+            type="button"
+            onClick={onToggle}
+            className="thread-icon-btn"
+            aria-expanded="true"
+            aria-controls={bodyId}
+            aria-label="Collapse message"
+            title="Collapse message"
+          >
+            <ChevronDownIcon size={15} className="rotate-180" />
+          </button>
+        </div>
+      </header>
+
+      <div className="mt-3 flex items-center justify-between gap-3">
+        {hasHtml ? (
+          <div className="segmented" role="group" aria-label="Message view">
+            <button
+              type="button"
+              onClick={() => onViewChange('rendered')}
+              aria-pressed={rendered}
+              className={`segmented__option ${rendered ? 'is-active' : ''}`}
+            >
+              Rendered
+            </button>
+            <button
+              type="button"
+              onClick={() => onViewChange('text')}
+              aria-pressed={!rendered}
+              className={`segmented__option ${!rendered ? 'is-active' : ''}`}
+            >
+              Plain text
+            </button>
+          </div>
+        ) : (
+          <span className="micro !text-[0.58rem]">Plain text</span>
+        )}
+
+        {attachments.length > 0 && (
+          <span className="micro !text-[0.58rem] flex items-center gap-1.5">
+            <PaperclipIcon size={12} />
+            {attachments.length} {attachments.length === 1 ? 'file' : 'files'}
+          </span>
+        )}
+      </div>
+
+      <div id={bodyId} className="mt-3">
+        {rendered ? (
+          <div className="mail-html" dangerouslySetInnerHTML={{ __html: safeHtml }} />
+        ) : (
+          <p className="mail-text">{text || 'This message has no body.'}</p>
+        )}
+      </div>
+
+      {attachments.length > 0 && (
+        <ul className="mt-4 flex flex-wrap gap-2" aria-label="Attachments">
+          {attachments.map((attachment, attachmentIndex) => (
+            <li
+              key={`${attachment?.filename || 'file'}-${attachmentIndex}`}
+              className="attachment-chip"
+              title={attachment?.filename || 'Attachment'}
+            >
+              <PaperclipIcon size={14} />
+              <span className="max-w-[16rem] truncate">{attachment?.filename || 'Attachment'}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+    </article>
+  );
+}
+
 export default function MailReader({
-  email,
+  thread,
   folder,
   label,
   busy,
   onReply,
+  onSendReply,
   onTrash,
   onRestore,
   onDeleteForever,
   onBack,
   onCompose,
 }) {
-  const [view, setView] = useState('rendered');
+  /* The newest message is open from the first paint — not after an effect —
+     so a conversation never flashes all-collapsed. */
+  const [expandedIds, setExpandedIds] = useState(() =>
+    thread?.latest?.id === undefined ? [] : [thread.latest.id],
+  );
+  const [views, setViews] = useState({});
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [replyBody, setReplyBody] = useState('');
+  const [replyError, setReplyError] = useState('');
+  const [replySending, setReplySending] = useState(false);
+  const replyRef = useRef(null);
 
-  /* Every message opens rendered; the plain-text toggle is per message. */
+  const messages = thread?.emails || [];
+  const latest = thread?.latest;
+  const latestId = latest?.id;
+
+  /* Every conversation opens with its newest message expanded and the rest
+     folded into summary bars, the way Gmail presents a thread. */
   useEffect(() => {
-    setView('rendered');
-  }, [email?.id]);
+    setExpandedIds(latestId === undefined ? [] : [latestId]);
+    setViews({});
+    setReplyOpen(false);
+    setReplyBody('');
+    setReplyError('');
+    setReplySending(false);
+  }, [thread?.key, latestId]);
 
-  /* Sanitise, then transcode for the dark card. Mail is authored for white
-     paper, so its near-black text and white panels have to be re-toned or it
-     lands unreadable on #121216. */
-  const safeHtml = useMemo(
-    () => (email?.html_body ? themeEmailHtml(sanitizeEmailHtml(email.html_body)) : ''),
-    [email?.html_body],
-  );
+  useEffect(() => {
+    if (replyOpen) replyRef.current?.focus();
+  }, [replyOpen]);
 
-  const text = useMemo(
-    () => (email ? plainBody({ text: email.text_body, html: email.html_body }) : ''),
-    [email],
-  );
+  if (!thread || !latest) return <ReaderEmpty onCompose={onCompose} />;
 
-  if (!email) return <ReaderEmpty onCompose={onCompose} />;
-
-  const from = parseAddress(email.from_address);
-  const to = parseAddress(email.to_address);
-  const attachments = Array.isArray(email.attachments) ? email.attachments : [];
+  const allExpanded = messages.every((message) => expandedIds.includes(message.id));
   const inTrash = folder === 'trash';
-  const hasHtml = Boolean(safeHtml);
 
-  const actions = inTrash ? (
-    <>
-      <button
-        type="button"
-        onClick={() => onRestore(email)}
-        className="btn btn--positive btn--sm"
-        disabled={busy}
-      >
-        <RestoreIcon size={14} />
-        Restore
-      </button>
-      <button
-        type="button"
-        onClick={() => onDeleteForever(email)}
-        className="btn btn--danger btn--sm"
-        disabled={busy}
-      >
-        <TrashIcon size={14} />
-        Delete
-      </button>
-    </>
-  ) : (
-    <>
-      <button
-        type="button"
-        onClick={() => onReply(email)}
-        className="btn btn--brand btn--sm"
-        disabled={busy}
-      >
-        <ReplyIcon size={14} />
-        Reply
-      </button>
+  const toggleMessage = (id) => {
+    setExpandedIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    );
+  };
+
+  const toggleAll = () => {
+    setExpandedIds(allExpanded ? [] : messages.map((message) => message.id));
+  };
+
+  /* In Sent the participants are all us; the conversation is named by the
+     people it was sent to. */
+  const threadNames =
+    folder === 'sent'
+      ? [parseAddress(latest.to_address).display]
+      : thread.participants;
+
+  const replyTarget = latest;
+  const replyAddress = replyTarget.folder === 'sent' ? replyTarget.to_address : replyTarget.from_address;
+  const replyMailbox = parseAddress(replyAddress);
+  const replyName = replyMailbox.display;
+  const replyEmail = replyMailbox.address || replyAddress;
+
+  const submitReply = async (event) => {
+    event.preventDefault();
+    if (replySending) return;
+
+    if (!replyBody.trim()) {
+      setReplyError('Write a reply before sending.');
+      return;
+    }
+
+    setReplySending(true);
+    setReplyError('');
+
+    const result = await onSendReply?.(replyTarget, replyBody.trim());
+    setReplySending(false);
+
+    if (result?.ok) {
+      setReplyBody('');
+      setReplyOpen(false);
+      return;
+    }
+
+    setReplyError(result?.error || 'The reply could not be sent. Try again.');
+  };
+
+  const messageActions = (email) =>
+    inTrash ? (
+      <>
+        <button
+          type="button"
+          onClick={() => onRestore(email)}
+          className="btn btn--positive btn--sm !px-2.5"
+          disabled={busy}
+          aria-label="Restore message"
+          title="Restore message"
+        >
+          <RestoreIcon size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={() => onDeleteForever(email)}
+          className="btn btn--danger btn--sm !px-2.5"
+          disabled={busy}
+          aria-label="Delete forever"
+          title="Delete forever"
+        >
+          <TrashIcon size={14} />
+        </button>
+      </>
+    ) : (
       <button
         type="button"
         onClick={() => onTrash(email)}
-        className="icon-btn"
+        className="thread-icon-btn"
         disabled={busy}
         aria-label="Move to trash"
         title="Move to trash"
       >
-        <TrashIcon size={16} />
+        <TrashIcon size={15} />
       </button>
-    </>
-  );
+    );
 
   return (
-    <div key={email.id} className="reader scroll-area animate-fade-in">
+    <div key={thread.key} className="reader scroll-area animate-fade-in">
       <div className="reader__body">
         <div className="mb-3 flex items-center gap-2 md:hidden">
           <button
             type="button"
             onClick={onBack}
             className="icon-btn -ml-2"
-            aria-label="Back to message list"
+            aria-label="Back to conversation list"
           >
             <ArrowLeftIcon size={19} />
           </button>
@@ -139,94 +343,128 @@ export default function MailReader({
         </div>
 
         <header className="reader-head glass glass--strong glass-sheen">
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="micro">
-                {label} · {formatFullTime(email.created_at)}
+                {label} · {thread.count} {thread.count === 1 ? 'message' : 'messages'}
               </p>
-              <h1 className="mail-subject mt-2">{cleanSubject(email.subject) || '(No subject)'}</h1>
+              <h1 className="mail-subject mt-2">{thread.subject || '(No subject)'}</h1>
             </div>
-            <div className="hidden shrink-0 items-center gap-2 sm:flex">{actions}</div>
+
+            {thread.count > 1 && (
+              <button type="button" onClick={toggleAll} className="btn btn--ghost btn--sm shrink-0">
+                {allExpanded ? 'Collapse all' : 'Expand all'}
+              </button>
+            )}
           </div>
 
           <div className="mail-byline">
-            <Avatar name={from.display} size="md" />
+            <Avatar name={parseAddress(latest.from_address).display} size="md" />
             <div className="min-w-0">
-              <p className="truncate text-[0.85rem] font-semibold text-ink">{from.display}</p>
-              {from.name && from.address && (
-                <p className="truncate text-[0.7rem] text-muted">{from.address}</p>
-              )}
+              <p className="truncate text-[0.82rem] font-semibold text-ink">
+                {threadNames.slice(0, 2).join(', ')}
+                {threadNames.length > 2 ? ` +${threadNames.length - 2}` : ''}
+              </p>
+              <p className="truncate text-[0.7rem] text-muted">
+                {thread.count} {thread.count === 1 ? 'message' : 'messages'} · last activity{' '}
+                {formatListTime(latest.created_at)}
+              </p>
             </div>
-            <span className="ml-auto hidden max-w-[45%] truncate text-[0.7rem] text-faint sm:inline">
-              to {to.name || to.address}
-            </span>
+            {!inTrash && (
+              <button
+                type="button"
+                onClick={() => onReply(latest)}
+                className="btn btn--ghost btn--sm ml-auto"
+                disabled={busy}
+              >
+                <ReplyIcon size={14} />
+                Reply
+              </button>
+            )}
           </div>
-
-          <div className="mt-3 flex items-center gap-2 sm:hidden">{actions}</div>
         </header>
 
-        <div className="mt-4 flex items-center justify-between gap-3">
-          {hasHtml ? (
-            <div className="segmented" role="group" aria-label="Message view">
-              <button
-                type="button"
-                onClick={() => setView('rendered')}
-                aria-pressed={view === 'rendered'}
-                className={`segmented__option ${view === 'rendered' ? 'is-active' : ''}`}
-              >
-                Rendered
-              </button>
-              <button
-                type="button"
-                onClick={() => setView('text')}
-                aria-pressed={view === 'text'}
-                className={`segmented__option ${view === 'text' ? 'is-active' : ''}`}
-              >
-                Plain text
-              </button>
-            </div>
-          ) : (
-            <span className="micro">Plain text</span>
-          )}
-
-          {attachments.length > 0 && (
-            <span className="micro flex items-center gap-1.5">
-              <PaperclipIcon size={12} />
-              {attachments.length} {attachments.length === 1 ? 'file' : 'files'}
-            </span>
-          )}
+        <div className="thread-stack mt-4">
+          {messages.map((email) => (
+            <ThreadMessage
+              key={email.id}
+              email={email}
+              expanded={expandedIds.includes(email.id)}
+              view={views[email.id] || 'rendered'}
+              onToggle={() => toggleMessage(email.id)}
+              onViewChange={(next) => setViews((current) => ({ ...current, [email.id]: next }))}
+              actions={messageActions(email)}
+            />
+          ))}
         </div>
 
-        {/* The message sits on the app's own dark surface, so what you read
-            here matches what the sender sees. */}
-        <div className="mail-paper mt-3 overflow-hidden rounded-2xl border border-[#27272a] bg-[#121216] p-6 text-[#f4f4f5]">
-          <span className="mail-paper__sheen" aria-hidden="true" />
-          {view === 'rendered' && hasHtml ? (
-            <div className="mail-html" dangerouslySetInnerHTML={{ __html: safeHtml }} />
-          ) : (
-            <p className="mail-text">{text || 'This message has no body.'}</p>
-          )}
-        </div>
+        {!inTrash && (
+          <section className="thread-reply glass glass-sheen mt-4" aria-label="Reply to this conversation">
+            {replyOpen ? (
+              <form onSubmit={submitReply}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="micro">Replying to {replyName}</p>
+                    <p className="mt-1 truncate text-[0.72rem] text-muted">
+                      To {replyEmail} · {replySubject(latest.subject)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReplyOpen(false)}
+                    className="icon-btn -mr-1 -mt-1 shrink-0"
+                    aria-label="Close reply"
+                  >
+                    <XIcon size={15} />
+                  </button>
+                </div>
 
-        {attachments.length > 0 && (
-          <section className="mt-5" aria-labelledby="attachments-title">
-            <h2 id="attachments-title" className="micro">
-              Attachments · {attachments.length}
-            </h2>
-            <ul className="mt-2.5 flex flex-wrap gap-2">
-              {attachments.map((attachment, index) => (
-                <li
-                  key={`${attachment?.filename || 'file'}-${index}`}
-                  className="attachment-chip"
-                  title={attachment?.filename || 'Attachment'}
-                >
-                  <PaperclipIcon size={14} />
-                  <span className="max-w-[16rem] truncate">
-                    {attachment?.filename || 'Attachment'}
-                  </span>
-                </li>
-              ))}
-            </ul>
+                <textarea
+                  ref={replyRef}
+                  rows={4}
+                  value={replyBody}
+                  onChange={(event) => setReplyBody(event.target.value)}
+                  placeholder={`Reply to ${replyName}…`}
+                  className="field-control field-control--area mt-3"
+                  aria-label="Reply message"
+                />
+
+                {replyError && (
+                  <p className="mt-2 text-[0.72rem] text-danger" role="alert">
+                    {replyError}
+                  </p>
+                )}
+
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setReplyOpen(false)}
+                    className="btn btn--ghost btn--sm"
+                    disabled={replySending}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn--brand btn--sm"
+                    disabled={replySending || !replyBody.trim()}
+                  >
+                    {replySending ? <Spinner size={14} /> : <ReplyIcon size={14} />}
+                    Send reply
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setReplyOpen(true)}
+                className="thread-reply__open"
+                disabled={busy}
+              >
+                <ReplyIcon size={15} />
+                Reply to {replyName}
+              </button>
+            )}
           </section>
         )}
       </div>

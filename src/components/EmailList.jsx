@@ -1,5 +1,6 @@
 import React from 'react';
 import { Avatar } from './Brand.jsx';
+import { messagePreview, NO_SUBJECT } from '../lib/threads.js';
 import {
   InboxIcon,
   RefreshIcon,
@@ -8,14 +9,7 @@ import {
   TrashIcon,
   XIcon,
 } from './Icons.jsx';
-import {
-  cleanPreview,
-  cleanSubject,
-  displayName,
-  formatListTime,
-  snippet,
-  trimLeadingSubject,
-} from '../lib/format.js';
+import { displayName, formatListTime } from '../lib/format.js';
 
 const EMPTY_COPY = {
   inbox: {
@@ -89,7 +83,7 @@ function EmptyState({ folder, searchQuery, onClearSearch }) {
 export default function EmailList({
   folder,
   label,
-  emails,
+  threads,
   loading,
   selectedId,
   searchQuery,
@@ -98,8 +92,9 @@ export default function EmailList({
   onRefresh,
   onClearSearch,
 }) {
-  const count = emails.length;
-  const unreadCount = folder === 'inbox' ? emails.filter((email) => !email.is_read).length : 0;
+  const count = threads.length;
+  const unreadCount =
+    folder === 'inbox' ? threads.reduce((total, thread) => total + thread.unread, 0) : 0;
 
   return (
     <>
@@ -113,7 +108,7 @@ export default function EmailList({
               </span>
             )}
             <span className="micro hidden sm:inline">
-              {count} {count === 1 ? 'message' : 'messages'}
+              {count} {count === 1 ? 'conversation' : 'conversations'}
             </span>
           </div>
           <button
@@ -160,31 +155,31 @@ export default function EmailList({
           <EmptyState folder={folder} searchQuery={searchQuery} onClearSearch={onClearSearch} />
         ) : (
           <ul>
-            {emails.map((email) => {
-              const unread = !email.is_read && folder === 'inbox';
-              const selected = selectedId === email.id;
-              const correspondent = folder === 'sent' ? email.to_address : email.from_address;
-              const sender =
+            {threads.map((thread) => {
+              const latest = thread.latest;
+              const unread = folder === 'inbox' && thread.unread > 0;
+              const selected = selectedId === thread.key;
+              const correspondent =
+                folder === 'sent' ? latest.to_address : latest.from_address;
+
+              /* Gmail names the conversation by everyone in it; the count sits
+                 beside the name so a busy thread reads at a glance. In Sent
+                 the interesting names are the recipients, not the sender. */
+              const names =
                 folder === 'sent'
-                  ? `To: ${displayName(email.to_address)}`
-                  : displayName(email.from_address);
-              /* Entities, tags and the worker's wrapper copy never reach the
-                 list: cleanPreview decodes and strips them first. The snippet
-                 is drawn once, from the text part when there is one, cut to a
-                 single inbox-sized line so a row never repeats itself. */
-              const preview = snippet(
-                trimLeadingSubject(
-                  cleanPreview(email.text_body || email.html_body),
-                  email.subject,
-                ),
-                65,
-              );
+                  ? displayName(latest.to_address)
+                  : thread.count > 1 && thread.participants.length > 0
+                    ? thread.participants.slice(0, 2).join(', ')
+                    : displayName(correspondent);
+              const sender = folder === 'sent' ? `To: ${names}` : names;
+
+              const preview = messagePreview(latest, 65);
 
               return (
-                <li key={email.id}>
+                <li key={thread.key}>
                   <button
                     type="button"
-                    onClick={() => onSelect(email)}
+                    onClick={() => onSelect(thread)}
                     className={`mail-row ${unread ? 'is-unread' : ''} ${selected ? 'is-selected' : ''}`}
                     aria-current={selected ? 'true' : undefined}
                   >
@@ -193,16 +188,25 @@ export default function EmailList({
                       <span className="flex items-center gap-2">
                         {unread && <span className="unread-dot" aria-hidden="true" />}
                         <span className="mail-row__sender truncate">{sender}</span>
-                        <time className="mail-row__time ml-auto" dateTime={email.created_at}>
-                          {formatListTime(email.created_at)}
+                        {thread.count > 1 && (
+                          <span className="mail-row__count shrink-0" title={`${thread.count} messages`}>
+                            ({thread.count})
+                          </span>
+                        )}
+                        <time className="mail-row__time ml-auto" dateTime={latest.created_at}>
+                          {formatListTime(latest.created_at)}
                         </time>
                       </span>
                       <span className="mail-row__subject mt-0.5 block truncate">
-                        {cleanSubject(email.subject) || '(no subject)'}
+                        {thread.subject === NO_SUBJECT ? '(no subject)' : thread.subject}
                       </span>
                       <span className="mail-row__snippet mt-0.5 line-clamp-2">{preview}</span>
                     </span>
-                    {unread && <span className="sr-only">Unread</span>}
+                    {unread && (
+                      <span className="sr-only">
+                        {thread.unread} unread {thread.unread === 1 ? 'message' : 'messages'}
+                      </span>
+                    )}
                   </button>
                 </li>
               );

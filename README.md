@@ -61,8 +61,8 @@ src/
   components/
     LoginScreen.jsx     sign-in portal
     Sidebar.jsx         brand lockup, folders, account card
-    EmailList.jsx       search, rows, empty and loading states
-    MailReader.jsx      message view, reply/trash/restore actions
+    EmailList.jsx       search, conversation rows, empty and loading states
+    MailReader.jsx      conversation stack, inline reply, message actions
     ComposeModal.jsx    composer with attachments and focus trap
     Toasts.jsx          transient confirmations
     Brand.jsx           wordmark, logo mark, avatars
@@ -70,16 +70,37 @@ src/
   lib/format.js         addresses, dates, snippets, escaping
   lib/emailTheme.js     re-tones inbound HTML for the dark reading card
   lib/teaser.js         writes the inbox teaser (preheader) from a message
+  lib/threads.js        conversation grouping, quote stripping, row previews
   lib/mailTemplate.js   message fragment + text twin for the sender worker
 worker/
   agora-mail-sender.js  Cloudflare Worker: wraps the fragment, sends via Resend
 test/
   deployed-worker.mjs   the worker as deployed, verbatim fixture
-  *.test.mjs            contract + colour tests, `npm test`
+  *.test.mjs            contract, colour and conversation tests, `npm test`
 ```
 
 ## Behaviour notes
 
+- **Conversations, not messages.** Rows are grouped by normalised subject — `Re:`,
+  `Fwd:` and extra whitespace removed — and shown as one row with a `(5)` badge when the
+  thread holds more than one message. Messages with no subject are never merged. A
+  conversation is ordered oldest message first and sorts in the list by its newest
+  message. Opening it marks every unread message in the thread as read, as Gmail does.
+  Grouping happens inside the folder being viewed, because each row belongs to exactly
+  one folder.
+- **The reader is a stack.** The newest message is open on the dark card; older ones are
+  summary bars with sender, snippet and time that expand in place. A conversation offers
+  *Expand all* / *Collapse all*, and each open message keeps its own Rendered / Plain-text
+  toggle.
+- **Only the new message is shown.** Before rendering, `lib/threads.js` strips the sender
+  worker's envelope (using its `<!-- Main Message Body -->` marker), hidden preheaders,
+  `data-reply-quote` blocks, nested `<blockquote>`s and anything after
+  `--- Original Message ---`; plain-text bodies are cut at `On … wrote:` or pasted
+  `From:/Sent:` headers. A message that *is* only a quote renders no body rather than a
+  fragment.
+- **Replying stays in context.** Each conversation ends with an inline reply box that
+  names the recipient and the `Re:` subject it will send, and posts through the same
+  `sendMessage` path as the composer — same envelope, text part, teaser and worker.
 - **List previews** draw once from the text part (falling back to the HTML), drop the
   subject when the body opens by repeating it, and cut at 65 characters, so a row never
   shows the same line twice.

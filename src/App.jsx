@@ -8,9 +8,10 @@ import Toasts, { useToasts } from './components/Toasts.jsx';
 import { BrandLockup } from './components/Brand.jsx';
 import Ambient from './components/Ambient.jsx';
 import { MenuIcon, PencilIcon } from './components/Icons.jsx';
-import { cleanSubject, extractEmailAddress } from './lib/format.js';
+import { extractEmailAddress } from './lib/format.js';
 import { buildMessageBody, buildMessageText } from './lib/mailTemplate.js';
 import { generateAutoTeaser } from './lib/teaser.js';
+import { groupIntoThreads, replySubject, threadKeyFor } from './lib/threads.js';
 
 /* ============================================================
    Agora Mail — webmail for @agora.in.net
@@ -62,7 +63,9 @@ export default function AgoraMail() {
 
   /* ---- Mailbox ------------------------------------------------------- */
   const [emails, setEmails] = useState([]);
-  const [selectedEmail, setSelectedEmail] = useState(null);
+  /* A conversation is identified by its normalised subject, not by a message
+     id: polling replaces the rows underneath without losing the reader. */
+  const [selectedThreadKey, setSelectedThreadKey] = useState(null);
   const [activeFolder, setActiveFolder] = useState('inbox');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -95,7 +98,7 @@ export default function AgoraMail() {
 
       setSession(null);
       setEmails([]);
-      setSelectedEmail(null);
+      setSelectedThreadKey(null);
       setSearchQuery('');
       setIsSidebarOpen(false);
       setIsComposeOpen(false);
@@ -152,7 +155,7 @@ export default function AgoraMail() {
       setActiveFolder('inbox');
       setSearchQuery('');
       setEmails([]);
-      setSelectedEmail(null);
+      setSelectedThreadKey(null);
     } catch (error) {
       console.error('Sign-in failed:', error);
       setAuthError('We couldn’t reach the mail server. Check your connection and try again.');
@@ -192,10 +195,6 @@ export default function AgoraMail() {
         if (!Array.isArray(data)) return;
 
         setEmails(data);
-        setSelectedEmail((current) => {
-          if (!current) return current;
-          return data.find((item) => item.id === current.id) || current;
-        });
       } catch (error) {
         console.error('Unable to load mailbox:', error);
         if (!silent) {
@@ -218,48 +217,64 @@ export default function AgoraMail() {
 
   /* ---- Reading ------------------------------------------------------- */
 
-  const handleSelectEmail = (email) => {
-    setSelectedEmail(email);
+  const handleSelectThread = (thread) => {
+    if (!thread) return;
+    setSelectedThreadKey(thread.key);
 
-    if (email.is_read || email.folder !== 'inbox') return;
+    /* Opening a conversation reads it, as Gmail does: every unread message in
+       the thread is marked — including any a search is currently hiding. */
+    const unread = emails.filter(
+      (email) => !email.is_read && email.folder === 'inbox' && threadKeyFor(email.subject) === thread.key,
+    );
+    if (unread.length === 0) return;
 
-    const readEmail = { ...email, is_read: true };
-    setSelectedEmail(readEmail);
+    const ids = new Set(unread.map((email) => email.id));
     setEmails((current) =>
-      current.map((item) => (item.id === email.id ? { ...item, is_read: true } : item)),
+      current.map((item) => (ids.has(item.id) ? { ...item, is_read: true } : item)),
     );
 
-    fetch(`${SUPABASE_URL}/rest/v1/emails?id=eq.${email.id}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${session.access_token}`,
-        Prefer: 'return=minimal',
-      },
-      body: JSON.stringify({ is_read: true }),
-    })
-      .then((response) => {
-        if (response.status === 401) handleLogout({ expired: true });
+    unread.forEach((email) => {
+      fetch(`${SUPABASE_URL}/rest/v1/emails?id=eq.${email.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${session.access_token}`,
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({ is_read: true }),
       })
-      .catch((error) => console.error('Unable to mark the message as read:', error));
+        .then((response) => {
+          if (response.status === 401) handleLogout({ expired: true });
+        })
+        .catch((error) => console.error('Unable to mark the message as read:', error));
+    });
   };
 
   const changeFolder = (folder) => {
     setIsSidebarOpen(false);
 
     if (folder === activeFolder) {
-      setSelectedEmail(null);
+      setSelectedThreadKey(null);
       return;
     }
 
     setActiveFolder(folder);
-    setSelectedEmail(null);
+    setSelectedThreadKey(null);
     setSearchQuery('');
     setEmails([]);
   };
 
   /* ---- Moving messages ---------------------------------------------- */
+
+  /* When the last message of the open conversation leaves, close it. */
+  const closeThreadIfEmpty = (removedEmail) => {
+    if (!selectedThreadKey) return;
+    const stillThere = emails.some(
+      (item) => item.id !== removedEmail.id && threadKeyFor(item.subject) === selectedThreadKey,
+    );
+    if (!stillThere) setSelectedThreadKey(null);
+  };
 
   const updateEmailFolder = async (email, folder) => {
     if (!email || busy) return;
@@ -286,8 +301,9 @@ export default function AgoraMail() {
 
       if (!response.ok) throw new Error(`Move failed (${response.status})`);
 
+      /* The conversation stays open; it simply loses that message. */
+      closeThreadIfEmpty(email);
       setEmails((current) => current.filter((item) => item.id !== email.id));
-      setSelectedEmail(null);
       pushToast(movingToTrash ? 'Message moved to trash.' : 'Message restored to inbox.', 'success');
     } catch (error) {
       console.error('Unable to move message:', error);
@@ -321,8 +337,8 @@ export default function AgoraMail() {
 
       if (!response.ok) throw new Error(`Delete failed (${response.status})`);
 
+      closeThreadIfEmpty(email);
       setEmails((current) => current.filter((item) => item.id !== email.id));
-      setSelectedEmail(null);
       pushToast('Message deleted permanently.', 'success');
     } catch (error) {
       console.error('Unable to delete message:', error);
@@ -336,10 +352,13 @@ export default function AgoraMail() {
 
   const openCompose = ({ replyTo = null } = {}) => {
     setReplyingTo(replyTo);
-    setTo(replyTo ? extractEmailAddress(replyTo.from_address) : '');
-    /* Subjects are stored entity-encoded; decode before editing or sending. */
-    const decodedSubject = cleanSubject(replyTo?.subject || '');
-    setSubject(replyTo ? (/^re:/i.test(decodedSubject) ? decodedSubject : `Re: ${decodedSubject}`) : '');
+    /* In Sent the message is ours, so the reply goes to its recipient. */
+    setTo(
+      replyTo
+        ? extractEmailAddress(replyTo.folder === 'sent' ? replyTo.to_address : replyTo.from_address)
+        : '',
+    );
+    setSubject(replyTo ? replySubject(replyTo.subject) : '');
     setBody('');
     setAttachments([]);
     setSendError('');
@@ -399,6 +418,70 @@ export default function AgoraMail() {
     setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index));
   };
 
+  /**
+   * Post one message to the sender worker. Shared by the composer and the
+   * thread's inline reply so both go through the same envelope, text part and
+   * auto-teaser rules.
+   *
+   * @returns {Promise<{ok: boolean, error?: string}>}
+   */
+  const sendMessage = useCallback(
+    async ({ to: recipientInput, subject: subjectLine, body: messageBody, replyingTo: replyTarget, attachments: files = [] }) => {
+      const recipient = extractEmailAddress(recipientInput);
+
+      /* The worker owns the envelope (card, brand row, footer, preheader);
+         this is just the message it wraps. */
+      const finalHtml = buildMessageBody({ body: messageBody, replyingTo: replyTarget });
+      const finalText = buildMessageText({ body: messageBody, replyingTo: replyTarget });
+      /* The teaser is written here, not by the sender: it has to differ from
+         the words the body opens with, or the inbox line stutters. */
+      const autoPreview = generateAutoTeaser(
+        messageBody,
+        subjectLine,
+        Boolean(replyTarget),
+        files.length,
+      );
+
+      try {
+        const response = await fetch(MAIL_SENDER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: recipient,
+            subject: subjectLine,
+            /* The worker renders this as the hidden preheader, so Gmail and the
+               Sent row show a summary rather than the body's first line. */
+            previewText: autoPreview,
+            html: finalHtml,
+            /* A clean text part keeps wrappers out of notification previews.
+               Workers that build their own text part simply ignore it. */
+            text: finalText,
+            customFrom: SENDER_ADDRESS,
+            attachments: files.map(({ filename, content }) => ({ filename, content })),
+          }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          return {
+            ok: false,
+            error: data.error || 'The mail server rejected that message.',
+          };
+        }
+
+        return { ok: true };
+      } catch (error) {
+        console.error('Unable to send message:', error);
+        return {
+          ok: false,
+          error: 'We couldn’t reach the mail sender. Check your connection and try again.',
+        };
+      }
+    },
+    [],
+  );
+
   const handleSendEmail = async (event) => {
     event.preventDefault();
     if (sending) return;
@@ -411,65 +494,58 @@ export default function AgoraMail() {
     setSending(true);
     setSendError('');
 
-    try {
-      const recipient = extractEmailAddress(to);
-      /* The worker owns the envelope (card, brand row, footer, preheader);
-         this is just the message it wraps. */
-      const finalHtml = buildMessageBody({ body, replyingTo });
-      const finalText = buildMessageText({ body, replyingTo });
-      /* The teaser is written here, not by the sender: it has to differ from
-         the words the body opens with, or the inbox line stutters. */
-      const autoPreview = generateAutoTeaser(body, subject, Boolean(replyingTo), attachments.length);
+    const result = await sendMessage({
+      to,
+      subject,
+      body,
+      replyingTo,
+      attachments,
+    });
 
-      const response = await fetch(MAIL_SENDER_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: recipient,
-          subject,
-          /* The worker renders this as the hidden preheader, so Gmail and the
-             Sent row show a summary rather than the body's first line. */
-          previewText: autoPreview,
-          html: finalHtml,
-          /* A clean text part keeps wrappers out of notification previews.
-             Workers that build their own text part simply ignore it. */
-          text: finalText,
-          customFrom: SENDER_ADDRESS,
-          attachments: attachments.map(({ filename, content }) => ({ filename, content })),
-        }),
-      });
+    setSending(false);
 
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        const message = data.error || 'The mail server rejected that message.';
-        setSendError(message);
-        pushToast('The message could not be sent.', 'error');
-        return;
-      }
-
-      pushToast('Message sent.', 'success');
-      setIsComposeOpen(false);
-      setReplyingTo(null);
-      setTo('');
-      setSubject('');
-      setBody('');
-      setAttachments([]);
-
-      setSelectedEmail(null);
-      if (activeFolder === 'sent') {
-        fetchEmails();
-      } else {
-        setEmails([]);
-        setActiveFolder('sent');
-      }
-    } catch (error) {
-      console.error('Unable to send message:', error);
-      setSendError('We couldn’t reach the mail sender. Check your connection and try again.');
-      pushToast('The message was not sent — network error.', 'error');
-    } finally {
-      setSending(false);
+    if (!result.ok) {
+      setSendError(result.error);
+      pushToast('The message could not be sent.', 'error');
+      return;
     }
+
+    pushToast('Message sent.', 'success');
+    setIsComposeOpen(false);
+    setReplyingTo(null);
+    setTo('');
+    setSubject('');
+    setBody('');
+    setAttachments([]);
+    setSelectedThreadKey(null);
+
+    if (activeFolder === 'sent') {
+      fetchEmails();
+    } else {
+      setEmails([]);
+      setActiveFolder('sent');
+    }
+  };
+
+  /** Reply from the bottom of a conversation, without leaving it. */
+  const handleInlineReply = async (email, messageBody) => {
+    if (!email) return { ok: false, error: 'There is no message to reply to.' };
+
+    const result = await sendMessage({
+      to: email.folder === 'sent' ? email.to_address : email.from_address,
+      subject: replySubject(email.subject),
+      body: messageBody,
+      replyingTo: email,
+    });
+
+    if (result.ok) {
+      pushToast('Reply sent.', 'success');
+      if (activeFolder === 'sent') fetchEmails();
+    } else {
+      pushToast(result.error || 'The reply could not be sent.', 'error');
+    }
+
+    return result;
   };
 
   /* ---- Derived ------------------------------------------------------- */
@@ -484,6 +560,14 @@ export default function AgoraMail() {
       ),
     );
   }, [emails, searchQuery]);
+
+  /* One row per conversation, newest first. */
+  const threads = useMemo(() => groupIntoThreads(filteredEmails), [filteredEmails]);
+
+  const selectedThread = useMemo(
+    () => threads.find((thread) => thread.key === selectedThreadKey) || null,
+    [threads, selectedThreadKey],
+  );
 
   /* ---- Views --------------------------------------------------------- */
 
@@ -557,38 +641,42 @@ export default function AgoraMail() {
               id="mailbox"
               tabIndex={-1}
               className={`list-pane min-h-0 w-full flex-col border-r border-line/10 md:w-[21rem] md:flex-none xl:w-[23rem] ${
-                selectedEmail ? 'hidden md:flex' : 'flex'
+                selectedThread ? 'hidden md:flex' : 'flex'
               }`}
               aria-label={`${folderLabel} messages`}
             >
               <EmailList
                 folder={activeFolder}
                 label={folderLabel}
-                emails={filteredEmails}
+                threads={threads}
                 loading={loading}
-                selectedId={selectedEmail?.id}
+                selectedId={selectedThreadKey}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
-                onSelect={handleSelectEmail}
+                onSelect={handleSelectThread}
                 onRefresh={() => fetchEmails()}
                 onClearSearch={() => setSearchQuery('')}
               />
             </section>
 
             <section
-              className={`min-h-0 min-w-0 flex-1 ${selectedEmail ? 'flex' : 'hidden md:flex'}`}
-              aria-label="Message"
+              className={`min-h-0 min-w-0 flex-1 ${selectedThread ? 'flex' : 'hidden md:flex'}`}
+              aria-label="Conversation"
             >
               <MailReader
-                email={selectedEmail}
+                /* Remount per conversation: expansion, view mode and the
+                   inline reply belong to one thread, not to the previous one. */
+                key={selectedThread?.key || 'no-conversation'}
+                thread={selectedThread}
                 folder={activeFolder}
                 label={folderLabel}
                 busy={busy}
                 onReply={(email) => openCompose({ replyTo: email })}
+                onSendReply={handleInlineReply}
                 onTrash={(email) => updateEmailFolder(email, 'trash')}
                 onRestore={(email) => updateEmailFolder(email, 'inbox')}
                 onDeleteForever={deleteForever}
-                onBack={() => setSelectedEmail(null)}
+                onBack={() => setSelectedThreadKey(null)}
                 onCompose={() => openCompose()}
               />
             </section>
