@@ -68,9 +68,13 @@ src/
     Brand.jsx           wordmark, logo mark, avatars
     Icons.jsx           stroke icon set
   lib/format.js         addresses, dates, snippets, escaping
+  lib/emailTheme.js     re-tones inbound HTML for the dark reading card
   lib/mailTemplate.js   message fragment + text twin for the sender worker
 worker/
   agora-mail-sender.js  Cloudflare Worker: wraps the fragment, sends via Resend
+test/
+  deployed-worker.mjs   the worker as deployed, verbatim fixture
+  *.test.mjs            contract + colour tests, `npm test`
 ```
 
 ## Behaviour notes
@@ -87,6 +91,16 @@ worker/
   of the message rather than to duplicated wrapper copy. It resets on cancel and on send.
 - **Reply quotes** carry `data-reply-quote="true"` on the wrapper, so the worker can drop
   the old thread when it builds the inbox snippet — a reply previews the reply.
+- **The reading surface is dark.** A message renders on the app's own card — `#121216`
+  with a `#27272a` hairline, `#f4f4f5` ink — rather than on white paper, so the reader
+  looks like the rest of Agora. Mail is authored for white, though, so `lib/emailTheme.js`
+  transcodes it on the way in: after sanitising, dark text is lifted, light panels are
+  darkened, pale hairlines are raised, `bgcolor` and `<font color>` are rewritten the same
+  way. The lift is contrast-aware (anything already legible on the card is left exactly as
+  written — our own messages ship their own palette) and monotonic, so a newsletter's
+  body/secondary/footnote hierarchy survives the flip instead of collapsing to one white.
+  Images, gradients and background images are never touched. 16 unit tests pin the
+  behaviour, including AA contrast for every text colour a realistic newsletter produces.
 - **Two workers, one contract.** `test/deployed-worker.mjs` is the sender worker exactly as
   it runs on Cloudflare; `test/mail-pipeline.test.mjs` (`npm test`) drives both it and the
   in-repo worker with the real fragment and asserts on what Resend would send. The frontend
@@ -105,9 +119,8 @@ worker/
   with no CSS, comments or hidden preheaders), builds the preheader from the body *before*
   `data-reply-quote` with the subject de-duplicated and entities decoded, escapes the
   preview text, and stores the real body in the Sent row rather than the preview line.
-  `node .verify/worker-check.mjs` runs the handler against a fake Resend and Supabase —
-  53 assertions covering transport, shell structure, plain text, preheader, replies,
-  attachments and failure paths.
+  `npm test` runs that handler against a fake Resend and Supabase: transport, shell
+  structure, plain text, preheader, replies, attachments and failure paths.
 - Replies quote the original with scripts and inline handlers stripped, attributed by
   display name ("On 20 Oct, Ananya Rao wrote:") rather than by raw mailbox.
 - The mailbox polls every 10 seconds; the refresh button forces a pass.

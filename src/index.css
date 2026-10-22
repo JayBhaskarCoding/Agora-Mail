@@ -70,15 +70,6 @@
     --glass-shadow: 0 28px 70px -34px rgb(0 0 0 / 0.92);
     --glass-shadow-soft: 0 18px 44px -30px rgb(0 0 0 / 0.8);
 
-    /* ---- the mail paper ------------------------------------------------
-       Messages are authored for light clients. They are rendered on a
-       paper sheet in both themes, the way Apple Mail and Gmail do it.     */
-    --paper-bg: #ffffff;
-    --paper-ink: #1a1e23;
-    --paper-muted: #4b5563;
-    --paper-border: rgb(255 255 255 / 0.14);
-    --paper-shadow: 0 40px 90px -48px rgb(0 0 0 / 0.95), 0 2px 0 rgb(255 255 255 / 0.04) inset;
-
     /* ---- ambience ------------------------------------------------------ */
     --aurora-violet: 139 92 246;
     --aurora-blue: 96 165 250;
@@ -146,12 +137,6 @@
       --glass-rim-soft: inset 0 1px 0 rgb(255 255 255 / 0.7);
       --glass-shadow: 0 26px 60px -36px rgb(15 23 42 / 0.32);
       --glass-shadow-soft: 0 16px 40px -30px rgb(15 23 42 / 0.24);
-
-      --paper-bg: #ffffff;
-      --paper-ink: #1a1e23;
-      --paper-muted: #4b5563;
-      --paper-border: rgb(15 23 42 / 0.1);
-      --paper-shadow: 0 34px 70px -46px rgb(15 23 42 / 0.35);
 
       --aurora-a: 0.16;
       --aurora-b: 0.12;
@@ -1010,17 +995,14 @@
     color: var(--text-dim);
   }
 
-  /* The paper. Messages are authored light, so they get a real sheet:
-     white stock, a hairline edge and a soft drop shadow. */
+  /* The reading surface: the app's own dark card (#121216 / #27272a) rather
+     than white paper, so a message looks here the way it looks in the inbox.
+     Colour and padding are applied as utilities in MailReader; this rule
+     keeps only what utilities cannot express. */
   .mail-paper {
     position: relative;
-    overflow: hidden;
-    border: 1px solid var(--paper-border);
-    border-radius: 1.25rem;
-    background-color: var(--paper-bg);
-    color: var(--paper-ink);
-    box-shadow: var(--paper-shadow);
-    color-scheme: light;
+    color-scheme: dark;
+    box-shadow: 0 24px 60px -40px rgb(0 0 0 / 0.9);
   }
 
   .mail-paper__sheen {
@@ -1028,11 +1010,7 @@
     inset-inline: 0;
     top: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.9), transparent);
-  }
-
-  .mail-paper__inner {
-    padding: clamp(1.1rem, 3.2vw, 2rem);
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.1), transparent);
   }
 
   .mail-html {
@@ -1040,7 +1018,7 @@
     margin-inline: auto;
     font-size: 0.94rem;
     line-height: 1.72;
-    color: var(--paper-ink);
+    color: #f4f4f5;
     overflow-wrap: anywhere;
   }
 
@@ -1057,7 +1035,7 @@
   }
 
   .mail-html a {
-    color: #6d28d9;
+    color: #b896ee;
     text-decoration: underline;
     text-underline-offset: 2px;
   }
@@ -1072,8 +1050,8 @@
   .mail-html blockquote {
     margin: 1em 0;
     padding-left: 1rem;
-    border-left: 3px solid #ddd6fe;
-    color: var(--paper-muted);
+    border-left: 3px solid #6d5bd0;
+    color: #a1a1aa;
   }
 
   .mail-html ul,
@@ -1091,13 +1069,13 @@
   .mail-html th,
   .mail-html td {
     padding: 0.4rem 0.6rem;
-    border-color: #e7ebf2;
+    border-color: #27272a;
   }
 
   .mail-html hr {
     margin: 1.4em 0;
     border: 0;
-    border-top: 1px solid #e7ebf2;
+    border-top: 1px solid #27272a;
   }
 
   .mail-text {
@@ -1105,7 +1083,7 @@
     margin-inline: auto;
     font-size: 0.9rem;
     line-height: 1.75;
-    color: var(--paper-ink);
+    color: #f4f4f5;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }

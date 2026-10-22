@@ -165,11 +165,8 @@ export default function ComposeModal({
                 message is opened. Blank falls back to the message itself. */}
             <div>
               <div className="flex items-baseline justify-between gap-3">
-                <label
-                  className="field-label leading-snug"
-                  htmlFor="compose-preview-text"
-                >
-                  Inbox Preview Text (Optional — defaults to message body)
+                <label className="field-label leading-snug" htmlFor="compose-preview-text">
+                  Inbox Preview / Teaser Text (Optional)
                 </label>
                 {previewText.length > 0 && (
                   <span
@@ -187,15 +184,10 @@ export default function ComposeModal({
                 type="text"
                 value={previewText}
                 onChange={(event) => onPreviewTextChange?.(event.target.value)}
-                placeholder="Custom snippet shown in inbox list before opening (like Squarespace)..."
+                placeholder="e.g., Special update inside..."
                 className="field-control"
                 maxLength={200}
-                aria-describedby="compose-preview-hint"
               />
-              <p id="compose-preview-hint" className="mt-1.5 text-[0.7rem] leading-relaxed text-faint">
-                Shown after the subject in the recipient’s inbox. Leave it blank and the first
-                line of your message is used instead.
-              </p>
             </div>
 
             {replyingTo && (

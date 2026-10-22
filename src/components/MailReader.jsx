@@ -15,6 +15,7 @@ import {
   plainBody,
   sanitizeEmailHtml,
 } from '../lib/format.js';
+import { themeEmailHtml } from '../lib/emailTheme.js';
 
 function ReaderEmpty({ onCompose }) {
   return (
@@ -56,8 +57,11 @@ export default function MailReader({
     setView('rendered');
   }, [email?.id]);
 
+  /* Sanitise, then transcode for the dark card. Mail is authored for white
+     paper, so its near-black text and white panels have to be re-toned or it
+     lands unreadable on #121216. */
   const safeHtml = useMemo(
-    () => (email?.html_body ? sanitizeEmailHtml(email.html_body) : ''),
+    () => (email?.html_body ? themeEmailHtml(sanitizeEmailHtml(email.html_body)) : ''),
     [email?.html_body],
   );
 
@@ -193,17 +197,15 @@ export default function MailReader({
           )}
         </div>
 
-        {/* The message itself, on paper: light stock in both themes, the way
-            every desktop mail client presents authored mail. */}
-        <div className="mail-paper mt-3">
+        {/* The message sits on the app's own dark surface, so what you read
+            here matches what the sender sees. */}
+        <div className="mail-paper mt-3 overflow-hidden rounded-2xl border border-[#27272a] bg-[#121216] p-6 text-[#f4f4f5]">
           <span className="mail-paper__sheen" aria-hidden="true" />
-          <div className="mail-paper__inner">
-            {view === 'rendered' && hasHtml ? (
-              <div className="mail-html" dangerouslySetInnerHTML={{ __html: safeHtml }} />
-            ) : (
-              <p className="mail-text">{text || 'This message has no body.'}</p>
-            )}
-          </div>
+          {view === 'rendered' && hasHtml ? (
+            <div className="mail-html" dangerouslySetInnerHTML={{ __html: safeHtml }} />
+          ) : (
+            <p className="mail-text">{text || 'This message has no body.'}</p>
+          )}
         </div>
 
         {attachments.length > 0 && (
