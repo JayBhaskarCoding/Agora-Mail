@@ -128,15 +128,79 @@ test('an unusable Reply-To falls back to the sender', () => {
   }
 });
 
-test('a message we sent replies to its recipient, Reply-To or not', () => {
+test('a message we sent replies to its recipient, not to us', () => {
+  /* Outgoing mail is stored with reply_to set to the sender, so the guard
+     matters more than the header here. */
+  assert.equal(
+    replyAddressFor(
+      {
+        folder: 'sent',
+        from_address: 'Jay <jay@agora.in.net>',
+        to_address: 'Meera <meera@example.com>',
+        reply_to: 'mail@agora.in.net',
+      },
+      { selfAddresses: ['mail@agora.in.net', 'jay@agora.in.net'] },
+    ),
+    'Meera <meera@example.com>',
+  );
   assert.equal(
     replyAddressFor({
       folder: 'sent',
       from_address: 'Jay <jay@agora.in.net>',
       to_address: 'Meera <meera@example.com>',
-      reply_to: 'someone@else.dev',
     }),
     'Meera <meera@example.com>',
+  );
+});
+
+test('the sender falls back to a `from` field when there is no `from_address`', () => {
+  assert.equal(
+    replyAddressFor({ folder: 'inbox', from: 'Reporter <reporter@example.com>' }),
+    'Reporter <reporter@example.com>',
+  );
+  assert.equal(
+    replyAddressFor({ folder: 'inbox', from_address: '', from: 'reporter@example.com' }),
+    'reporter@example.com',
+  );
+});
+
+test('a moderation report replies to the reporter, not to noreply', () => {
+  const report = {
+    folder: 'inbox',
+    from_address: 'Agora <noreply@agora.in.net>',
+    to_address: 'Jay <jay@agora.in.net>',
+    reply_to: 'reporter@example.com',
+  };
+  assert.equal(replyAddressFor(report), 'reporter@example.com');
+  assert.equal(
+    replyAddressFor(report, { selfAddresses: ['mail@agora.in.net', 'jay@agora.in.net'] }),
+    'reporter@example.com',
+  );
+  assert.equal(
+    replyAddressFor(
+      { ...report, reply_to: '', replyTo: 'second-reporter@example.com' },
+      { selfAddresses: ['mail@agora.in.net'] },
+    ),
+    'second-reporter@example.com',
+  );
+});
+
+test('a Reply-To that points at one of our own mailboxes is skipped', () => {
+  assert.equal(
+    replyAddressFor(
+      { folder: 'inbox', from_address: 'Meera <meera@example.com>', reply_to: 'mail@agora.in.net' },
+      { selfAddresses: ['mail@agora.in.net'] },
+    ),
+    'Meera <meera@example.com>',
+  );
+
+  /* With nothing else to reach, the self address is still better than none. */
+  assert.equal(
+    replyAddressFor(
+      { folder: 'inbox', from_address: 'mail@agora.in.net', reply_to: 'jay@agora.in.net' },
+      { selfAddresses: ['mail@agora.in.net', 'jay@agora.in.net'] },
+    ),
+    'jay@agora.in.net',
   );
 });
 

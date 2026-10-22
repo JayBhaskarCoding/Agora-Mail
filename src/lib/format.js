@@ -128,30 +128,54 @@ export function firstMailbox(value) {
 /**
  * Where a reply to this message should go.
  *
- * A message can name its own Reply-To — mailing lists, ticketing systems and
- * no-reply dispatchers all do — and that beats the sender. A message we sent
- * carries no such header to honour, so its reply belongs to the recipient,
- * exactly as before. Anything unusable in `reply_to` falls back rather than
- * leaving the composer without a recipient.
+ * The order is deliberate:
+ *
+ *   1. `reply_to` / `replyTo` — mailing lists, ticketing systems and no-reply
+ *      dispatchers name the mailbox that should receive answers. A moderation
+ *      report sent from `noreply@agora.in.net` carries the reporter's
+ *      registered address here, and that is where the reply belongs.
+ *   2. `from_address` / `from` — an ordinary message has no such header, so it
+ *      goes back to its sender.
+ *
+ * A message in Sent is the exception: its sender is us, so its recipient comes
+ * before the sender and a reply never lands in our own inbox.
+ *
+ * One guard sits across all three: a candidate that is one of *our own*
+ * mailboxes is skipped while another usable candidate remains. Outgoing mail
+ * is stored with `reply_to` set to the sender, so without this a reply to
+ * something we sent would come straight back to us instead of to the person
+ * we wrote to.
  *
  * The result is the mailbox as stored (`Name <address>` or a bare address);
  * callers that need just the address pass it through `extractEmailAddress`.
  */
-export function replyAddressFor(email = {}) {
+export function replyAddressFor(email = {}, { selfAddresses = [] } = {}) {
   const message = email || {};
+
+  const self = new Set(
+    (Array.isArray(selfAddresses) ? selfAddresses : [selfAddresses])
+      .filter(Boolean)
+      .map((value) => extractEmailAddress(value).toLowerCase())
+      .filter(Boolean),
+  );
+
   const outgoing = message.folder === 'sent';
-  const fallback = outgoing ? message.to_address : message.from_address;
-
   const candidates = outgoing
-    ? [fallback]
-    : [message.reply_to, message.replyTo, fallback];
+    ? [message.reply_to, message.replyTo, message.to_address, message.to, message.from_address, message.from]
+    : [message.reply_to, message.replyTo, message.from_address, message.from];
 
+  const usable = [];
   for (const candidate of candidates) {
-    const usable = firstMailbox(candidate);
-    if (usable) return usable;
+    const mailbox = firstMailbox(candidate);
+    if (mailbox && !usable.includes(mailbox)) usable.push(mailbox);
   }
 
-  return String(fallback || '').trim();
+  /* Never address one of our own mailboxes while a person is available. */
+  const external = usable.find(
+    (mailbox) => !self.has(extractEmailAddress(mailbox).toLowerCase()),
+  );
+
+  return external || usable[0] || '';
 }
 
 /**

@@ -8,12 +8,20 @@ import {
   Spinner,
   XIcon,
 } from './Icons.jsx';
-import { cleanPreview, cleanSubject, displayName, formatBytes, snippet } from '../lib/format.js';
+import {
+  cleanPreview,
+  cleanSubject,
+  displayName,
+  extractEmailAddress,
+  formatBytes,
+  snippet,
+} from '../lib/format.js';
 
 const MAX_ATTACHMENTS = 10;
 
 export default function ComposeModal({
   replyingTo,
+  replyAddress = '',
   fromAddress,
   to,
   onToChange,
@@ -69,6 +77,18 @@ export default function ComposeModal({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose, sending]);
+
+  /* A Reply-To header can point somewhere other than the sender — a
+     moderation report sent from noreply@ names the reporter. Say so, so the
+     To field is not the only clue. */
+  const senderAddress = replyingTo
+    ? extractEmailAddress(replyingTo.from_address || replyingTo.from)
+    : '';
+  const resolvedReply = extractEmailAddress(replyAddress);
+  const rerouted =
+    Boolean(resolvedReply) &&
+    Boolean(senderAddress) &&
+    resolvedReply.toLowerCase() !== senderAddress.toLowerCase();
 
   const handleFiles = (event) => {
     const files = Array.from(event.target.files || []);
@@ -171,6 +191,11 @@ export default function ComposeModal({
                   <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted">
                     {snippet(cleanPreview(replyingTo.text_body || replyingTo.html_body), 180)}
                   </p>
+                  {rerouted && (
+                    <p className="mt-1.5 text-[0.68rem] leading-relaxed text-muted">
+                      Replies go to <span className="font-medium text-ink">{resolvedReply}</span>
+                    </p>
+                  )}
                 </div>
               </div>
             )}

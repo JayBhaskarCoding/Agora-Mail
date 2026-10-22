@@ -135,14 +135,24 @@ test/
   names the recipient and the `Re:` subject it will send, and posts through the same
   `sendMessage` path as the composer — same envelope, text part, teaser and worker.
 - **Reply goes where the message asks.** `replyAddressFor()` in `lib/format.js` resolves
-  a message's target: its `reply_to` — or `replyTo` — when that header holds a usable
-  address, otherwise its sender. That covers the lists and no-reply senders that route
-  answers elsewhere. A header stored as `Name <address>`, as a comma-separated list, as
-  an array, as JSON, or HTML-escaped all resolve to the first real address; anything
-  unusable (blank, `[]`, `<>`, a bare name) falls back rather than leaving the composer
-  empty. A message we sent carries no Reply-To to honour, so it still replies to its
-  recipient. The reader header's *Reply*, the inline reply box and the `To` line it shows
-  all read the same function, so they cannot disagree about who will receive the reply.
+  a message's target in this order:
+  1. `reply_to`, then `replyTo` — mailing lists, ticketing systems and no-reply senders
+     name the mailbox that should receive answers. A moderation report sent from
+     `noreply@agora.in.net` carries the reporter's registered address here, so the reply
+     reaches the reporter rather than the robot.
+  2. `from_address`, then `from` — an ordinary message has no such header, so it goes
+     back to its sender.
+
+  A candidate that is one of our own mailboxes is skipped while another usable one
+  remains: outgoing mail is stored with `reply_to` set to the sender, so without that
+  guard a reply to something we sent would return to us. A message in Sent puts its
+  recipient before its sender for the same reason. A header stored as `Name <address>`,
+  as a comma-separated list, as an array, as JSON, or HTML-escaped all resolve to the
+  first real address; anything unusable (blank, `[]`, `<>`, a bare name) falls back
+  rather than leaving the composer empty. The reader header's *Reply* and the inline
+  reply box read the same function, so the `To` field, the address on screen and the
+  message actually sent cannot disagree — and when the target differs from the sender,
+  the composer says so (*Replies go to …*).
 - **List previews** draw once from the text part (falling back to the HTML), drop the
   subject when the body opens by repeating it, and cut at 65 characters, so a row never
   shows the same line twice.

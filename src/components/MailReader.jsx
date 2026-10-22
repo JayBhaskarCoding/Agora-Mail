@@ -311,7 +311,7 @@ export default function MailReader({
   const replyTarget = latest;
   /* The address the reply will actually go to: Reply-To when the message
      names one, otherwise its sender (or its recipient, in Sent). */
-  const replyAddress = replyAddressFor(replyTarget);
+  const replyAddress = replyAddressFor(replyTarget, { selfAddresses });
   const replyMailbox = parseAddress(replyAddress);
   const replyName = replyMailbox.display;
   const replyEmail = replyMailbox.address || replyAddress;

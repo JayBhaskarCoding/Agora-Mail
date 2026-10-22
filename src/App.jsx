@@ -101,6 +101,13 @@ export default function AgoraMail() {
 
   const folderLabel = FOLDER_LABELS[activeFolder] || 'Inbox';
 
+  /* Our own mailboxes. Used to tell a sent message from a received one, and
+     to keep a reply from being addressed back to us. */
+  const selfAddresses = useMemo(
+    () => [SENDER_ADDRESS, session?.user?.email].filter(Boolean),
+    [session?.user?.email],
+  );
+
   /* ---- Session ------------------------------------------------------- */
 
   const handleLogout = useCallback(
@@ -555,10 +562,12 @@ export default function AgoraMail() {
 
   const openCompose = ({ replyTo = null } = {}) => {
     setReplyingTo(replyTo);
-    /* Reply-To wins when the message names one — mailing lists and
-       no-reply senders use it to point elsewhere. A message we sent has no
-       such header to honour, so its reply goes to its recipient. */
-    setTo(replyTo ? extractEmailAddress(replyAddressFor(replyTo)) : '');
+    /* The message decides: its Reply-To first (a moderation report names the
+       reporter there), then its sender. Our own mailboxes are skipped, so a
+       reply never comes back to Agora instead of reaching a person. */
+    setTo(
+      replyTo ? extractEmailAddress(replyAddressFor(replyTo, { selfAddresses })) : '',
+    );
     setSubject(replyTo ? replySubject(replyTo.subject) : '');
     setBody('');
     setAttachments([]);
@@ -738,9 +747,9 @@ export default function AgoraMail() {
     if (!email) return { ok: false, error: 'There is no message to reply to.' };
 
     const result = await sendMessage({
-      /* Same target as the header's Reply button, so the two can never send
+      /* Same resolver as the header's Reply button, so the two can never send
          to different people. */
-      to: replyAddressFor(email),
+      to: replyAddressFor(email, { selfAddresses }),
       subject: replySubject(email.subject),
       body: messageBody,
       replyingTo: email,
@@ -965,13 +974,6 @@ export default function AgoraMail() {
     [threads],
   );
 
-  /* Our own mailboxes, so the reader can tell a sent message from a received
-     one even when the row's folder is not the whole story. */
-  const selfAddresses = useMemo(
-    () => [SENDER_ADDRESS, session?.user?.email].filter(Boolean),
-    [session?.user?.email],
-  );
-
   /* ---- Views --------------------------------------------------------- */
 
   if (!session) {
@@ -1104,6 +1106,9 @@ export default function AgoraMail() {
         {isComposeOpen && (
           <ComposeModal
             replyingTo={replyingTo}
+            /* The same resolution the To field was filled from, so the card
+               can say when answers go somewhere other than the sender. */
+            replyAddress={replyingTo ? replyAddressFor(replyingTo, { selfAddresses }) : ''}
             fromAddress={SENDER_ADDRESS}
             to={to}
             onToChange={setTo}
