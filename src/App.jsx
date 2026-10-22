@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar.jsx';
 import EmailList from './components/EmailList.jsx';
 import MailReader from './components/MailReader.jsx';
 import ComposeModal from './components/ComposeModal.jsx';
+import ConfirmDialog from './components/ConfirmDialog.jsx';
 import Toasts, { useToasts } from './components/Toasts.jsx';
 import { BrandLockup } from './components/Brand.jsx';
 import Ambient from './components/Ambient.jsx';
@@ -70,6 +71,10 @@ export default function AgoraMail() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  /* Emptying Trash is confirmation-gated and gets its own flag, so the dialog
+     and the list button can show it without disabling every other action. */
+  const [isEmptyTrashOpen, setIsEmptyTrashOpen] = useState(false);
+  const [emptyingTrash, setEmptyingTrash] = useState(false);
 
   /* ---- Shell --------------------------------------------------------- */
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -102,6 +107,7 @@ export default function AgoraMail() {
       setSearchQuery('');
       setIsSidebarOpen(false);
       setIsComposeOpen(false);
+      setIsEmptyTrashOpen(false);
       setReplyingTo(null);
 
       if (options.expired) {
@@ -262,6 +268,7 @@ export default function AgoraMail() {
 
   const changeFolder = (folder) => {
     setIsSidebarOpen(false);
+    setIsEmptyTrashOpen(false);
 
     if (folder === activeFolder) {
       setSelectedThreadKey(null);
@@ -331,6 +338,67 @@ export default function AgoraMail() {
     }
   };
 
+  /**
+   * Move a whole conversation to Trash.
+   *
+   * A conversation is a subject, not a row, and Inbox/Sent are loaded as one
+   * pool — so every message of the thread is patched, not only the one the
+   * reader happens to show. Each PATCH uses the same `id=eq.…` shape that
+   * already moves a single message; the ids are requested in parallel.
+   */
+  const moveThreadToTrash = async (thread) => {
+    if (!thread || busy) return;
+
+    const ids = (thread.emails || []).map((email) => email.id).filter(Boolean);
+    if (ids.length === 0) return;
+
+    setBusy(true);
+
+    try {
+      const responses = await Promise.all(
+        ids.map((id) =>
+          fetch(`${SUPABASE_URL}/rest/v1/emails?id=eq.${id}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${session.access_token}`,
+              Prefer: 'return=minimal',
+            },
+            body: JSON.stringify({ folder: 'trash' }),
+          }),
+        ),
+      );
+
+      if (responses.some((response) => response.status === 401)) {
+        handleLogout({ expired: true });
+        return;
+      }
+
+      const failed = responses.filter((response) => !response.ok).length;
+      if (failed > 0) throw new Error(`Move failed for ${failed} of ${ids.length} messages`);
+
+      /* The conversation leaves the pool entirely, so the reader closes first
+         and the refreshed list decides what is left to show. */
+      setSelectedThreadKey(null);
+      const moved = new Set(ids);
+      setEmails((current) => current.filter((email) => !moved.has(email.id)));
+      pushToast(
+        ids.length === 1 ? 'Message moved to trash.' : 'Conversation moved to trash.',
+        'success',
+      );
+      fetchEmails({ silent: true });
+    } catch (error) {
+      console.error('Unable to move conversation:', error);
+      pushToast('Couldn’t move that conversation to trash.', 'error');
+      /* A partial move is possible; re-read the pool so the list tells the
+         truth about what the server holds. */
+      fetchEmails({ silent: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const deleteForever = async (email) => {
     if (!email || busy) return;
 
@@ -361,6 +429,54 @@ export default function AgoraMail() {
     } finally {
       setBusy(false);
     }
+  };
+
+  /**
+   * Permanently remove every message in Trash.
+   *
+   * RLS scopes `emails` to the signed-in account, so `folder=eq.trash` sent
+   * with the session token can only reach this user's trash — the same
+   * scoping every other mailbox query relies on. The dialog asks first; this
+   * function only runs once the question is answered.
+   */
+  const emptyTrash = async () => {
+    if (emptyingTrash) return;
+
+    setEmptyingTrash(true);
+
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/emails?folder=eq.trash`, {
+        method: 'DELETE',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${session.access_token}`,
+          Prefer: 'return=minimal',
+        },
+      });
+
+      if (response.status === 401) {
+        handleLogout({ expired: true });
+        return;
+      }
+
+      if (!response.ok) throw new Error(`Empty trash failed (${response.status})`);
+
+      setIsEmptyTrashOpen(false);
+      setSelectedThreadKey(null);
+      setEmails([]);
+      pushToast('Trash emptied.', 'success');
+      fetchEmails({ silent: true });
+    } catch (error) {
+      console.error('Unable to empty trash:', error);
+      pushToast('Couldn’t empty Trash. Try again.', 'error');
+    } finally {
+      setEmptyingTrash(false);
+    }
+  };
+
+  const requestEmptyTrash = () => {
+    if (activeFolder !== 'trash' || busy || emptyingTrash) return;
+    setIsEmptyTrashOpen(true);
   };
 
   /* ---- Composing ----------------------------------------------------- */
@@ -596,6 +712,13 @@ export default function AgoraMail() {
     [threads, selectedThreadKey],
   );
 
+  /* Everything in Trash, independent of the search filter: Empty Trash acts
+     on the folder, so a search must not make it look emptier than it is. */
+  const trashCount = useMemo(
+    () => threads.filter((thread) => thread.folders?.trash).length,
+    [threads],
+  );
+
   /* Our own mailboxes, so the reader can tell a sent message from a received
      one even when the row's folder is not the whole story. */
   const selfAddresses = useMemo(
@@ -691,6 +814,10 @@ export default function AgoraMail() {
                 onSelect={handleSelectThread}
                 onRefresh={() => fetchEmails()}
                 onClearSearch={() => setSearchQuery('')}
+                busy={busy}
+                emptying={emptyingTrash}
+                trashCount={trashCount}
+                onEmptyTrash={requestEmptyTrash}
               />
             </section>
 
@@ -710,6 +837,7 @@ export default function AgoraMail() {
                 onReply={(email) => openCompose({ replyTo: email })}
                 onSendReply={handleInlineReply}
                 onTrash={(email) => updateEmailFolder(email, 'trash')}
+                onTrashThread={moveThreadToTrash}
                 onRestore={(email) => updateEmailFolder(email, 'inbox')}
                 onDeleteForever={deleteForever}
                 onBack={() => setSelectedThreadKey(null)}
@@ -736,6 +864,17 @@ export default function AgoraMail() {
             error={sendError}
             onSend={handleSendEmail}
             onClose={closeCompose}
+          />
+        )}
+
+        {isEmptyTrashOpen && (
+          <ConfirmDialog
+            title="Permanently delete all messages in Trash?"
+            description="Every conversation in Trash will be removed from this mailbox. This cannot be undone."
+            confirmLabel="Empty Trash"
+            busy={emptyingTrash}
+            onConfirm={emptyTrash}
+            onCancel={() => setIsEmptyTrashOpen(false)}
           />
         )}
 

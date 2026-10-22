@@ -12,6 +12,7 @@ import {
   RefreshIcon,
   SearchIcon,
   SendIcon,
+  Spinner,
   ThreadIcon,
   TrashIcon,
   XIcon,
@@ -99,6 +100,10 @@ export default function EmailList({
   onSelect,
   onRefresh,
   onClearSearch,
+  busy = false,
+  emptying = false,
+  trashCount = 0,
+  onEmptyTrash,
 }) {
   const count = threads.length;
   const unreadCount =
@@ -159,6 +164,31 @@ export default function EmailList({
             <RefreshIcon size={16} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
+
+        {/* Trash is the one folder with a bulk action, so it gets its own
+            strip: the count it acts on, and the button that clears it. */}
+        {folder === 'trash' && (
+          <div className="glass glass-sheen mt-3 flex items-center justify-between gap-2 rounded-2xl border-danger/25 px-3 py-2">
+            <p className="min-w-0 text-[0.72rem] leading-tight text-muted">
+              <span className="font-semibold text-ink">{trashCount}</span>{' '}
+              {trashCount === 1 ? 'conversation' : 'conversations'} in Trash
+            </p>
+            <button
+              type="button"
+              onClick={onEmptyTrash}
+              className="btn btn--danger btn--sm shrink-0"
+              disabled={busy || emptying || trashCount === 0}
+              title={
+                trashCount === 0
+                  ? 'Trash is already empty'
+                  : 'Permanently delete every conversation in Trash'
+              }
+            >
+              {emptying ? <Spinner size={14} /> : <TrashIcon size={14} />}
+              {emptying ? 'Emptying…' : 'Empty Trash'}
+            </button>
+          </div>
+        )}
 
         <div className="relative mt-3">
           <SearchIcon

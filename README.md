@@ -64,6 +64,7 @@ src/
     EmailList.jsx       search, conversation rows, empty and loading states
     MailReader.jsx      conversation stack, inline reply, message actions
     ComposeModal.jsx    composer with attachments and focus trap
+    ConfirmDialog.jsx   glass confirmation for destructive actions
     Toasts.jsx          transient confirmations
     Brand.jsx           wordmark, logo mark, avatars
     Icons.jsx           stroke icon set
@@ -135,8 +136,19 @@ test/
 - **List previews** draw once from the text part (falling back to the HTML), drop the
   subject when the body opens by repeating it, and cut at 65 characters, so a row never
   shows the same line twice.
-- Every mailbox action is optimistic: read state flips immediately, moves and deletions
-  leave the list at once, and failures surface as a toast instead of an `alert()`.
+- **Trash works at the conversation level.** The reader header carries *Move thread to
+  trash* beside *Reply*. It patches every message of the open conversation — both sides
+  of the dialogue, because Inbox and Sent are one pool — then closes the reader and
+  refreshes the list, so the thread leaves either folder in one decision. In Trash the
+  list header grows a strip with the number of conversations kept there and an *Empty
+  Trash* button; it asks *Permanently delete all messages in Trash?* in a glass
+  confirmation (a card, not `window.confirm`, which sandboxed frames suppress), then
+  issues one `DELETE /rest/v1/emails?folder=eq.trash` — RLS scopes `emails` to the
+  signed-in mailbox — and clears the list and the selected conversation. The button
+  disables itself once Trash is empty.
+- Every mailbox action is optimistic: read state flips immediately, and moving or
+  deleting a single message leaves the list at once; failures surface as a toast instead
+  of an `alert()`.
 - A 401 from PostgREST clears the stored session and returns the visitor to sign-in with
   an explanation.
 - The composer escapes typed text before it becomes outgoing HTML, caps attachments at

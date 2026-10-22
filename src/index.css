@@ -1421,6 +1421,13 @@
     opacity: 0.75;
   }
 
+  /* A confirmation asks one question, so it stays a card, not a page. */
+  .modal-card--confirm {
+    max-width: 27rem;
+    max-height: min(90vh, 34rem);
+    max-height: min(90dvh, 34rem);
+  }
+
   @media (max-width: 640px) {
     .modal-backdrop {
       align-items: flex-end;

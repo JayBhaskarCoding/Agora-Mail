@@ -247,6 +247,7 @@ export default function MailReader({
   onReply,
   onSendReply,
   onTrash,
+  onTrashThread,
   onRestore,
   onDeleteForever,
   onBack,
@@ -414,15 +415,30 @@ export default function MailReader({
               </p>
             </div>
             {!inTrash && (
-              <button
-                type="button"
-                onClick={() => onReply(latest)}
-                className="btn btn--ghost btn--sm ml-auto"
-                disabled={busy}
-              >
-                <ReplyIcon size={14} />
-                Reply
-              </button>
+              <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => onReply(latest)}
+                  className="btn btn--ghost btn--sm"
+                  disabled={busy}
+                >
+                  <ReplyIcon size={14} />
+                  Reply
+                </button>
+                {/* One decision for the whole conversation: every message in
+                    the thread moves, on both sides of the dialogue. */}
+                <button
+                  type="button"
+                  onClick={() => onTrashThread(thread)}
+                  className="btn btn--danger btn--sm"
+                  disabled={busy}
+                  aria-label="Move thread to trash"
+                  title="Move every message in this conversation to Trash"
+                >
+                  <TrashIcon size={14} />
+                  <span className="hidden sm:inline">Move thread to trash</span>
+                </button>
+              </div>
             )}
           </div>
         </header>
