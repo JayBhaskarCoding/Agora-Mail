@@ -180,6 +180,14 @@ export function LockIcon(props) {
   );
 }
 
+export function CheckIcon(props) {
+  return (
+    <Icon {...props} strokeWidth={2.4}>
+      <path d="m5 12.6 4.4 4.4L19 6.6" />
+    </Icon>
+  );
+}
+
 export function CheckCircleIcon(props) {
   return (
     <Icon {...props}>

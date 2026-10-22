@@ -8,8 +8,10 @@ import {
   threadRecipient,
 } from '../lib/threads.js';
 import {
+  CheckIcon,
   InboxIcon,
   RefreshIcon,
+  RestoreIcon,
   SearchIcon,
   SendIcon,
   Spinner,
@@ -104,8 +106,18 @@ export default function EmailList({
   emptying = false,
   trashCount = 0,
   onEmptyTrash,
+  selectedKeys = new Set(),
+  selectedCount = 0,
+  onToggleSelect,
+  onToggleSelectAll,
+  onClearSelection,
+  onTrashSelected,
+  onRestoreSelected,
+  onDeleteSelected,
 }) {
   const count = threads.length;
+  const allChosen = count > 0 && threads.every((thread) => selectedKeys.has(thread.key));
+  const someChosen = !allChosen && threads.some((thread) => selectedKeys.has(thread.key));
   const unreadCount =
     folder === 'inbox' ? threads.reduce((total, thread) => total + thread.unread, 0) : 0;
 
@@ -144,6 +156,30 @@ export default function EmailList({
       <header className="list-head px-4 pb-3 pt-4 md:pt-5">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2.5">
+            {/* One control for the whole folder — or just what a search left. */}
+            {count > 0 && (
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={allChosen ? true : someChosen ? 'mixed' : false}
+                aria-label={
+                  allChosen
+                    ? 'Clear selection'
+                    : `Select all ${count} ${count === 1 ? 'conversation' : 'conversations'}`
+                }
+                title={allChosen ? 'Clear selection' : 'Select all conversations'}
+                onClick={() => onToggleSelectAll(threads.map((thread) => thread.key))}
+                className={`mail-check mail-check--head ${allChosen ? 'is-checked' : ''} ${
+                  someChosen ? 'is-mixed' : ''
+                }`}
+              >
+                {someChosen ? (
+                  <span className="mail-check__dash" aria-hidden="true" />
+                ) : (
+                  <CheckIcon size={12} />
+                )}
+              </button>
+            )}
             <h2 className="truncate text-base font-semibold tracking-tight text-ink">{label}</h2>
             {unreadCount > 0 && (
               <span className="rounded-full border border-brand/25 bg-brand/15 px-1.5 py-0.5 font-mono text-[0.58rem] font-semibold leading-none text-brand-lav">
@@ -165,9 +201,69 @@ export default function EmailList({
           </button>
         </div>
 
-        {/* Trash is the one folder with a bulk action, so it gets its own
-            strip: the count it acts on, and the button that clears it. */}
-        {folder === 'trash' && (
+        {/* What a selection can do, in one strip: the count it acts on, the
+            action itself, and the way out. */}
+        {selectedCount > 0 && (
+          <div
+            className="selection-bar glass glass-sheen mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 rounded-2xl px-2.5 py-2"
+            role="group"
+            aria-label="Selected conversations"
+          >
+            <button
+              type="button"
+              onClick={onClearSelection}
+              className="icon-btn !h-6 !w-6 shrink-0"
+              aria-label="Clear selection"
+              title="Clear selection"
+            >
+              <XIcon size={12} />
+            </button>
+            <p className="text-[0.72rem] font-semibold text-ink" aria-live="polite">
+              {selectedCount} selected
+            </p>
+            <div className="ml-auto flex items-center gap-1.5">
+              {folder === 'trash' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={onRestoreSelected}
+                    className="btn btn--positive btn--sm"
+                    disabled={busy}
+                    title="Restore the selected conversations to Inbox"
+                  >
+                    <RestoreIcon size={14} />
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onDeleteSelected}
+                    className="btn btn--danger btn--sm"
+                    disabled={busy}
+                    title="Delete the selected conversations for good"
+                  >
+                    <TrashIcon size={14} />
+                    Delete forever
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onTrashSelected}
+                  className="btn btn--danger btn--sm"
+                  disabled={busy}
+                  title="Move the selected conversations to Trash"
+                >
+                  <TrashIcon size={14} />
+                  Move to trash
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Trash keeps its own strip — the folder count and Empty Trash — but
+            yields to the selection bar while conversations are chosen. */}
+        {folder === 'trash' && selectedCount === 0 && (
           <div className="glass glass-sheen mt-3 flex items-center justify-between gap-2 rounded-2xl border-danger/25 px-3 py-2">
             <p className="min-w-0 text-[0.72rem] leading-tight text-muted">
               <span className="font-semibold text-ink">{trashCount}</span>{' '}
@@ -229,18 +325,34 @@ export default function EmailList({
                 (email) => !email.is_read && email.folder === folder,
               ).length;
               const unread = folder === 'inbox' && unreadInFolder > 0;
-              const selected = selectedId === thread.key;
+              const opened = selectedId === thread.key;
+              const checked = selectedKeys.has(thread.key);
               const row = describeRow(thread);
               const preview = messagePreview(latest, 65);
               const ongoing = thread.count > 1;
+              const subjectLabel =
+                thread.subject === NO_SUBJECT ? '' : `, ${thread.subject}`;
 
               return (
-                <li key={thread.key}>
+                <li key={thread.key} className={`mail-item ${checked ? 'is-checked' : ''}`}>
+                  {/* A sibling, not a child: pressing it selects without
+                      opening the conversation the way the row does. */}
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={checked}
+                    onClick={() => onToggleSelect(thread.key)}
+                    className={`mail-check ${checked ? 'is-checked' : ''}`}
+                    aria-label={`${checked ? 'Deselect' : 'Select'} ${row.sender}${subjectLabel}`}
+                    title={checked ? 'Deselect conversation' : 'Select conversation'}
+                  >
+                    <CheckIcon size={11} />
+                  </button>
                   <button
                     type="button"
                     onClick={() => onSelect(thread)}
-                    className={`mail-row ${unread ? 'is-unread' : ''} ${selected ? 'is-selected' : ''}`}
-                    aria-current={selected ? 'true' : undefined}
+                    className={`mail-row ${unread ? 'is-unread' : ''} ${opened ? 'is-selected' : ''}`}
+                    aria-current={opened ? 'true' : undefined}
                     title={row.address ? `${row.prefix} ${row.sender} <${row.address}>` : undefined}
                   >
                     <Avatar name={row.avatar} size="md" />

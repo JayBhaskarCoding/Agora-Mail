@@ -72,6 +72,7 @@ src/
   lib/emailTheme.js     re-tones inbound HTML for the dark reading card
   lib/teaser.js         writes the inbox teaser (preheader) from a message
   lib/threads.js        conversation grouping, quote stripping, row previews
+  lib/selection.js      selection set arithmetic, ids behind a bulk action
   lib/mailTemplate.js   message fragment + text twin for the sender worker
 worker/
   agora-mail-sender.js  Cloudflare Worker: wraps the fragment, sends via Resend
@@ -146,6 +147,17 @@ test/
   issues one `DELETE /rest/v1/emails?folder=eq.trash` — RLS scopes `emails` to the
   signed-in mailbox — and clears the list and the selected conversation. The button
   disables itself once Trash is empty.
+- **Pick conversations, act on them in bulk.** Every row carries a ring in its left
+  column, and the list header carries the same ring for the folder — checked, mixed, or
+  clear. Ticking a ring selects without opening the conversation, `lib/selection.js`
+  keeps the set immutable, and the header ring follows an active search rather than
+  ignoring it. As soon as anything is ticked, a strip replaces the folder's own controls
+  with the count and the actions it allows: *Move to trash* in Inbox and Sent, *Restore*
+  and *Delete forever* in Trash. Moving or restoring patches every message behind each
+  chosen conversation — both sides of the dialogue — while deleting asks first
+  (*Permanently delete N conversations?*) and then issues one batched
+  `DELETE …?id=in.(…)`. A selection clears when the folder or the search changes, and the
+  poll drops keys for conversations that are no longer there.
 - Every mailbox action is optimistic: read state flips immediately, and moving or
   deleting a single message leaves the list at once; failures surface as a toast instead
   of an `alert()`.

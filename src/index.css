@@ -774,7 +774,7 @@
     align-items: flex-start;
     gap: 0.75rem;
     width: 100%;
-    padding: 0.85rem 1rem 0.85rem 1.15rem;
+    padding: 0.85rem 1rem 0.85rem 2.55rem;
     border: 0;
     border-bottom: 1px solid rgb(var(--line-rgb) / 0.05);
     background: transparent;
@@ -841,6 +841,94 @@
   .mail-row.is-selected .mail-row__sender,
   .mail-row.is-selected .mail-row__subject {
     color: var(--text-bright);
+  }
+
+  /* ---- choosing conversations -------------------------------------------
+     The ring lives in the row's left column and fills with the brand
+     gradient once chosen. It is a sibling of the row button, not a child,
+     so selecting never opens the conversation. */
+  .mail-item {
+    position: relative;
+  }
+
+  .mail-check {
+    position: absolute;
+    left: 0.9rem;
+    top: calc(0.85rem + (2.5rem - 1.15rem) / 2);
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 1.15rem;
+    height: 1.15rem;
+    padding: 0;
+    border: 1.5px solid var(--glass-border-strong);
+    border-radius: 9999px;
+    background-color: var(--glass-fill-soft);
+    color: transparent;
+    cursor: pointer;
+    transition:
+      border-color 0.18s var(--ease),
+      background-color 0.18s var(--ease),
+      color 0.18s var(--ease),
+      transform 0.18s var(--ease);
+  }
+
+  .mail-check:hover {
+    border-color: rgb(var(--accent-rgb) / 0.65);
+    background-color: rgb(var(--accent-rgb) / 0.14);
+  }
+
+  .mail-check:active {
+    transform: scale(0.9);
+  }
+
+  .mail-check:focus-visible {
+    outline: 2px solid rgb(var(--accent-rgb) / 0.7);
+    outline-offset: 2px;
+  }
+
+  .mail-check.is-checked {
+    border-color: transparent;
+    background-image: var(--brand-gradient);
+    color: var(--on-accent);
+    box-shadow: 0 8px 18px -10px rgb(var(--accent-rgb) / 0.9);
+  }
+
+  /* Part of the folder is chosen: a bar, not a tick. */
+  .mail-check.is-mixed {
+    border-color: transparent;
+    background-color: rgb(var(--accent-rgb) / 0.85);
+    color: var(--on-accent);
+  }
+
+  .mail-check__dash {
+    width: 0.55rem;
+    height: 2px;
+    border-radius: 2px;
+    background-color: currentColor;
+  }
+
+  /* In the list header the same control sits in the flow beside the title. */
+  .mail-check--head {
+    position: static;
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .mail-item.is-checked .mail-row {
+    background-color: rgb(var(--accent-rgb) / 0.06);
+  }
+
+  .mail-item.is-checked .mail-row.is-selected {
+    background-color: rgb(var(--accent-rgb) / 0.13);
+  }
+
+  /* The selection strip carries one accent edge, so it reads as an action
+     bar rather than another piece of the header. */
+  .selection-bar {
+    border-left: 2px solid rgb(var(--accent-rgb) / 0.7);
   }
 
   /* The requested violet pill is tuned for the dark canvas; on the light

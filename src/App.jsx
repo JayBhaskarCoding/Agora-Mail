@@ -13,6 +13,12 @@ import { extractEmailAddress } from './lib/format.js';
 import { buildMessageBody, buildMessageText } from './lib/mailTemplate.js';
 import { generateAutoTeaser } from './lib/teaser.js';
 import { groupIntoThreads, replySubject, threadKeyFor } from './lib/threads.js';
+import {
+  messageIdsForThreads,
+  pruneKeys,
+  toggleAllKeys,
+  toggleKey,
+} from './lib/selection.js';
 
 /* ============================================================
    Agora Mail — webmail for @agora.in.net
@@ -71,9 +77,13 @@ export default function AgoraMail() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  /* Emptying Trash is confirmation-gated and gets its own flag, so the dialog
-     and the list button can show it without disabling every other action. */
-  const [isEmptyTrashOpen, setIsEmptyTrashOpen] = useState(false);
+  /* Conversations ticked in the list, by thread key. A conversation is the
+     unit the list shows, so it is also the unit a bulk action takes. */
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set());
+  /* One confirmation dialog serves every destructive action: it holds the
+     question and the function to run once the question is answered. */
+  const [confirmRequest, setConfirmRequest] = useState(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
   const [emptyingTrash, setEmptyingTrash] = useState(false);
 
   /* ---- Shell --------------------------------------------------------- */
@@ -107,7 +117,8 @@ export default function AgoraMail() {
       setSearchQuery('');
       setIsSidebarOpen(false);
       setIsComposeOpen(false);
-      setIsEmptyTrashOpen(false);
+      setConfirmRequest(null);
+      setSelectedKeys(new Set());
       setReplyingTo(null);
 
       if (options.expired) {
@@ -268,7 +279,8 @@ export default function AgoraMail() {
 
   const changeFolder = (folder) => {
     setIsSidebarOpen(false);
-    setIsEmptyTrashOpen(false);
+    setConfirmRequest(null);
+    setSelectedKeys(new Set());
 
     if (folder === activeFolder) {
       setSelectedThreadKey(null);
@@ -297,6 +309,89 @@ export default function AgoraMail() {
     );
     if (!stillThere) setSelectedThreadKey(null);
   };
+
+  /** Drop rows from the loaded pool without waiting for the next read. */
+  const forgetEmails = (ids) => {
+    const removed = new Set(ids);
+    setEmails((current) => current.filter((email) => !removed.has(email.id)));
+  };
+
+  /**
+   * PATCH one folder onto a batch of message ids — the shape every move uses,
+   * whether it came from one message, a whole thread or a selection.
+   *
+   * @returns {Promise<'ok' | 'expired'>} `expired` means a 401 came back and
+   *   the caller should end the session.
+   */
+  const setFolderForMessages = useCallback(
+    async (ids, folder) => {
+      if (ids.length === 0) return 'ok';
+
+      const responses = await Promise.all(
+        ids.map((id) =>
+          fetch(`${SUPABASE_URL}/rest/v1/emails?id=eq.${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${session?.access_token}`,
+              Prefer: 'return=minimal',
+            },
+            body: JSON.stringify({ folder }),
+          }),
+        ),
+      );
+
+      if (responses.some((response) => response.status === 401)) return 'expired';
+
+      const failed = responses.filter((response) => !response.ok).length;
+      if (failed > 0) throw new Error(`Move failed for ${failed} of ${ids.length} messages`);
+      return 'ok';
+    },
+    [session?.access_token],
+  );
+
+  /**
+   * DELETE a batch of messages for good. PostgREST takes the whole batch in
+   * one `id=in.(…)` filter; ids that are not URL-safe fall back to one call
+   * each rather than being interpolated into the filter.
+   *
+   * @returns {Promise<'ok' | 'expired'>}
+   */
+  const deleteMessages = useCallback(
+    async (ids) => {
+      if (ids.length === 0) return 'ok';
+
+      const headers = {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${session?.access_token}`,
+      };
+      const safe = ids.every((id) => /^[A-Za-z0-9_-]+$/.test(String(id)));
+
+      if (safe) {
+        const response = await fetch(
+          `${SUPABASE_URL}/rest/v1/emails?id=in.(${ids.join(',')})`,
+          { method: 'DELETE', headers },
+        );
+        if (response.status === 401) return 'expired';
+        if (!response.ok) throw new Error(`Delete failed (${response.status})`);
+        return 'ok';
+      }
+
+      const responses = await Promise.all(
+        ids.map((id) =>
+          fetch(`${SUPABASE_URL}/rest/v1/emails?id=eq.${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            headers,
+          }),
+        ),
+      );
+      if (responses.some((response) => response.status === 401)) return 'expired';
+      if (responses.some((response) => !response.ok)) throw new Error('Delete failed');
+      return 'ok';
+    },
+    [session?.access_token],
+  );
 
   const updateEmailFolder = async (email, folder) => {
     if (!email || busy) return;
@@ -349,40 +444,21 @@ export default function AgoraMail() {
   const moveThreadToTrash = async (thread) => {
     if (!thread || busy) return;
 
-    const ids = (thread.emails || []).map((email) => email.id).filter(Boolean);
+    const ids = messageIdsForThreads([thread]);
     if (ids.length === 0) return;
 
     setBusy(true);
 
     try {
-      const responses = await Promise.all(
-        ids.map((id) =>
-          fetch(`${SUPABASE_URL}/rest/v1/emails?id=eq.${id}`, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              apikey: SUPABASE_ANON_KEY,
-              Authorization: `Bearer ${session.access_token}`,
-              Prefer: 'return=minimal',
-            },
-            body: JSON.stringify({ folder: 'trash' }),
-          }),
-        ),
-      );
-
-      if (responses.some((response) => response.status === 401)) {
+      if ((await setFolderForMessages(ids, 'trash')) === 'expired') {
         handleLogout({ expired: true });
         return;
       }
 
-      const failed = responses.filter((response) => !response.ok).length;
-      if (failed > 0) throw new Error(`Move failed for ${failed} of ${ids.length} messages`);
-
       /* The conversation leaves the pool entirely, so the reader closes first
          and the refreshed list decides what is left to show. */
       setSelectedThreadKey(null);
-      const moved = new Set(ids);
-      setEmails((current) => current.filter((email) => !moved.has(email.id)));
+      forgetEmails(ids);
       pushToast(
         ids.length === 1 ? 'Message moved to trash.' : 'Conversation moved to trash.',
         'success',
@@ -405,23 +481,13 @@ export default function AgoraMail() {
     setBusy(true);
 
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/emails?id=eq.${email.id}`, {
-        method: 'DELETE',
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-
-      if (response.status === 401) {
+      if ((await deleteMessages([email.id])) === 'expired') {
         handleLogout({ expired: true });
         return;
       }
 
-      if (!response.ok) throw new Error(`Delete failed (${response.status})`);
-
       closeThreadIfEmpty(email);
-      setEmails((current) => current.filter((item) => item.id !== email.id));
+      forgetEmails([email.id]);
       pushToast('Message deleted permanently.', 'success');
     } catch (error) {
       console.error('Unable to delete message:', error);
@@ -461,8 +527,8 @@ export default function AgoraMail() {
 
       if (!response.ok) throw new Error(`Empty trash failed (${response.status})`);
 
-      setIsEmptyTrashOpen(false);
       setSelectedThreadKey(null);
+      setSelectedKeys(new Set());
       setEmails([]);
       pushToast('Trash emptied.', 'success');
       fetchEmails({ silent: true });
@@ -476,7 +542,13 @@ export default function AgoraMail() {
 
   const requestEmptyTrash = () => {
     if (activeFolder !== 'trash' || busy || emptyingTrash) return;
-    setIsEmptyTrashOpen(true);
+    setConfirmRequest({
+      title: 'Permanently delete all messages in Trash?',
+      description:
+        'Every conversation in Trash will be removed from this mailbox. This cannot be undone.',
+      confirmLabel: 'Empty Trash',
+      run: emptyTrash,
+    });
   };
 
   /* ---- Composing ----------------------------------------------------- */
@@ -712,6 +784,180 @@ export default function AgoraMail() {
     [threads, selectedThreadKey],
   );
 
+  /* A selection is a set of thread keys; everything below turns it into the
+     conversations and message ids the bulk actions operate on. */
+  const selectedThreads = useMemo(
+    () => threads.filter((thread) => selectedKeys.has(thread.key)),
+    [threads, selectedKeys],
+  );
+
+  const selectedMessageIds = useMemo(
+    () => messageIdsForThreads(selectedThreads),
+    [selectedThreads],
+  );
+
+  /* A thread that leaves the pool — moved, deleted, or read away by the poll —
+     must not stay ticked in a list that no longer shows it. */
+  useEffect(() => {
+    setSelectedKeys((current) =>
+      pruneKeys(current, threads.map((thread) => thread.key)),
+    );
+  }, [threads]);
+
+  /* ---- Selecting and bulk actions ------------------------------------ */
+
+  const clearSelection = useCallback(() => {
+    setSelectedKeys((current) => (current.size === 0 ? current : new Set()));
+  }, []);
+
+  const toggleThreadSelection = useCallback((key) => {
+    setSelectedKeys((current) => toggleKey(current, key));
+  }, []);
+
+  /* The header control hands over the conversations the list is showing, so
+     "select all" follows a search instead of ignoring it. */
+  const selectAllThreads = useCallback((keys) => {
+    setSelectedKeys((current) => toggleAllKeys(current, keys));
+  }, []);
+
+  const changeSearch = (value) => {
+    setSearchQuery(value);
+    /* A selection under a filter would act on rows the search is hiding. */
+    setSelectedKeys(new Set());
+  };
+
+  /** Close the reader if the conversation on screen is one of these. */
+  const closeReaderFor = (keys) => {
+    setSelectedThreadKey((current) => (keys.includes(current) ? null : current));
+  };
+
+  const trashSelected = async () => {
+    if (busy || selectedMessageIds.length === 0) return;
+
+    const count = selectedThreads.length;
+    const keys = selectedThreads.map((thread) => thread.key);
+    const ids = selectedMessageIds;
+
+    setBusy(true);
+    try {
+      if ((await setFolderForMessages(ids, 'trash')) === 'expired') {
+        handleLogout({ expired: true });
+        return;
+      }
+
+      forgetEmails(ids);
+      closeReaderFor(keys);
+      clearSelection();
+      pushToast(
+        `Moved ${count} ${count === 1 ? 'conversation' : 'conversations'} to trash.`,
+        'success',
+      );
+      fetchEmails({ silent: true });
+    } catch (error) {
+      console.error('Unable to move the selection:', error);
+      pushToast('Couldn’t move those conversations to trash.', 'error');
+      fetchEmails({ silent: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const restoreSelected = async () => {
+    if (busy || selectedMessageIds.length === 0) return;
+
+    const count = selectedThreads.length;
+    const keys = selectedThreads.map((thread) => thread.key);
+    const ids = selectedMessageIds;
+
+    setBusy(true);
+    try {
+      if ((await setFolderForMessages(ids, 'inbox')) === 'expired') {
+        handleLogout({ expired: true });
+        return;
+      }
+
+      forgetEmails(ids);
+      closeReaderFor(keys);
+      clearSelection();
+      pushToast(
+        `Restored ${count} ${count === 1 ? 'conversation' : 'conversations'} to Inbox.`,
+        'success',
+      );
+      fetchEmails({ silent: true });
+    } catch (error) {
+      console.error('Unable to restore the selection:', error);
+      pushToast('Couldn’t restore those conversations.', 'error');
+      fetchEmails({ silent: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /* Deletion is the one bulk action with no way back, so it asks first. */
+  const deleteSelected = async () => {
+    if (busy || selectedMessageIds.length === 0) return;
+
+    const count = selectedThreads.length;
+    const keys = selectedThreads.map((thread) => thread.key);
+    const ids = selectedMessageIds;
+
+    setBusy(true);
+    try {
+      if ((await deleteMessages(ids)) === 'expired') {
+        handleLogout({ expired: true });
+        return;
+      }
+
+      forgetEmails(ids);
+      closeReaderFor(keys);
+      clearSelection();
+      pushToast(
+        `Deleted ${count} ${count === 1 ? 'conversation' : 'conversations'} permanently.`,
+        'success',
+      );
+      fetchEmails({ silent: true });
+    } catch (error) {
+      console.error('Unable to delete the selection:', error);
+      pushToast('Couldn’t delete those conversations.', 'error');
+      fetchEmails({ silent: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requestDeleteSelected = () => {
+    if (busy || selectedThreads.length === 0) return;
+
+    const conversations = selectedThreads.length;
+    const messages = selectedMessageIds.length;
+
+    setConfirmRequest({
+      title:
+        conversations === 1
+          ? 'Permanently delete this conversation?'
+          : `Permanently delete ${conversations} conversations?`,
+      description: `This removes ${messages} ${
+        messages === 1 ? 'message' : 'messages'
+      } from Agora Mail for good. It cannot be undone.`,
+      confirmLabel: 'Delete forever',
+      run: deleteSelected,
+    });
+  };
+
+  /** Answer the open question, then close it whatever the outcome. */
+  const runConfirmedAction = async () => {
+    if (!confirmRequest || confirmBusy) return;
+
+    const action = confirmRequest.run;
+    setConfirmBusy(true);
+    try {
+      await action();
+    } finally {
+      setConfirmBusy(false);
+      setConfirmRequest(null);
+    }
+  };
+
   /* Everything in Trash, independent of the search filter: Empty Trash acts
      on the folder, so a search must not make it look emptier than it is. */
   const trashCount = useMemo(
@@ -810,14 +1056,22 @@ export default function AgoraMail() {
                 loading={loading}
                 selectedId={selectedThreadKey}
                 searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
+                onSearchChange={changeSearch}
                 onSelect={handleSelectThread}
                 onRefresh={() => fetchEmails()}
-                onClearSearch={() => setSearchQuery('')}
+                onClearSearch={() => changeSearch('')}
                 busy={busy}
                 emptying={emptyingTrash}
                 trashCount={trashCount}
                 onEmptyTrash={requestEmptyTrash}
+                selectedKeys={selectedKeys}
+                selectedCount={selectedThreads.length}
+                onToggleSelect={toggleThreadSelection}
+                onToggleSelectAll={selectAllThreads}
+                onClearSelection={clearSelection}
+                onTrashSelected={trashSelected}
+                onRestoreSelected={restoreSelected}
+                onDeleteSelected={requestDeleteSelected}
               />
             </section>
 
@@ -867,14 +1121,16 @@ export default function AgoraMail() {
           />
         )}
 
-        {isEmptyTrashOpen && (
+        {confirmRequest && (
           <ConfirmDialog
-            title="Permanently delete all messages in Trash?"
-            description="Every conversation in Trash will be removed from this mailbox. This cannot be undone."
-            confirmLabel="Empty Trash"
-            busy={emptyingTrash}
-            onConfirm={emptyTrash}
-            onCancel={() => setIsEmptyTrashOpen(false)}
+            title={confirmRequest.title}
+            description={confirmRequest.description}
+            confirmLabel={confirmRequest.confirmLabel}
+            busy={confirmBusy}
+            onConfirm={runConfirmedAction}
+            onCancel={() => {
+              if (!confirmBusy) setConfirmRequest(null);
+            }}
           />
         )}
 
