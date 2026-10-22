@@ -19,8 +19,6 @@ export default function ComposeModal({
   onToChange,
   subject,
   onSubjectChange,
-  previewText = '',
-  onPreviewTextChange,
   body,
   onBodyChange,
   attachments,
@@ -158,35 +156,6 @@ export default function ComposeModal({
                 onChange={(event) => onSubjectChange(event.target.value)}
                 placeholder="Subject line"
                 className="field-control"
-              />
-            </div>
-
-            {/* The line mail clients show beside the subject, before the
-                message is opened. Blank falls back to the message itself. */}
-            <div>
-              <div className="flex items-baseline justify-between gap-3">
-                <label className="field-label leading-snug" htmlFor="compose-preview-text">
-                  Inbox Preview / Teaser Text (Optional)
-                </label>
-                {previewText.length > 0 && (
-                  <span
-                    className={`shrink-0 font-mono text-[0.6rem] tabular-nums ${
-                      previewText.length > 140 ? 'text-danger' : 'text-faint'
-                    }`}
-                    aria-hidden="true"
-                  >
-                    {previewText.length}/140
-                  </span>
-                )}
-              </div>
-              <input
-                id="compose-preview-text"
-                type="text"
-                value={previewText}
-                onChange={(event) => onPreviewTextChange?.(event.target.value)}
-                placeholder="e.g., Special update inside..."
-                className="field-control"
-                maxLength={200}
               />
             </div>
 

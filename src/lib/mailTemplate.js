@@ -19,11 +19,13 @@ import { escapeHtml } from './format.js';
 
 /** Palette of the card the worker wraps this fragment in. */
 export const MAIL_BRAND = {
-  body: '#D3D7E1',
-  muted: '#A5ABBB',
-  faint: '#8B93A7',
-  accent: '#A78BFA',
-  quoteRule: '#6D5BD0',
+  /* The worker's card is #121216; these are its ink, its muted grey and the
+     violet rule that marks a quoted original. */
+  body: '#f4f4f5',
+  muted: '#a1a1aa',
+  faint: '#8b8b93',
+  accent: '#a855f7',
+  quoteRule: '#a855f7',
 };
 
 const FONT_SANS =
@@ -51,7 +53,7 @@ function renderText(value, { quiet = false } = {}) {
   return paragraphs
     .map(
       (paragraph, index) =>
-        `<p style="margin:0 0 ${index === paragraphs.length - 1 ? '0' : '16px'};` +
+        `<p style="${index === paragraphs.length - 1 ? 'margin:0;' : 'margin:0 0 16px;'}` +
         `font-family:${FONT_SANS};font-size:${size}px;line-height:1.7;` +
         `color:${colour};word-break:break-word;">` +
         `${escapeHtml(paragraph).replace(/\n/g, '<br />')}</p>`,
@@ -100,9 +102,9 @@ function quoteBlock(replyingTo) {
     ? sanitizeQuote(replyingTo.html_body)
     : renderText(replyingTo.text_body, { quiet: true });
 
-  return `\n\n<div data-reply-quote="true" style="margin:24px 0 0;padding:2px 0 0 14px;border-left:2px solid ${MAIL_BRAND.quoteRule};">
+  return `\n\n<div data-reply-quote="true" style="margin:16px 0 0;padding:2px 0 0 14px;border-left:3px solid ${MAIL_BRAND.quoteRule};color:${MAIL_BRAND.muted};font-size:13px;">
   <p style="margin:0 0 10px;font-family:${FONT_SANS};font-size:12px;line-height:1.6;color:${MAIL_BRAND.faint};">On ${escapeHtml(stamp)}, ${escapeHtml(quoteAuthor(replyingTo.from_address))} wrote:</p>
-  <div style="font-family:${FONT_SANS};font-size:14px;line-height:1.7;color:${MAIL_BRAND.muted};">${original}</div>
+  <div style="font-family:${FONT_SANS};font-size:13px;line-height:1.7;color:${MAIL_BRAND.muted};">${original}</div>
 </div>`;
 }
 
@@ -114,7 +116,13 @@ function quoteBlock(replyingTo) {
  * @param {object=} options.replyingTo  The message being replied to, if any.
  */
 export function buildMessageBody({ body, replyingTo } = {}) {
-  return `${renderText(body)}${replyingTo ? quoteBlock(replyingTo) : ''}`;
+  /* The wrapper carries the card's ink and typeface, so anything the fragment
+     grows later inherits light text instead of the mail client's default
+     black — the worker's card is #121216 in every client. */
+  return (
+    `<div style="font-family:${FONT_SANS};color:${MAIL_BRAND.body};">` +
+    `${renderText(body)}${replyingTo ? quoteBlock(replyingTo) : ''}</div>`
+  );
 }
 
 /**

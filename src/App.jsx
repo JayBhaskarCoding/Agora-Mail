@@ -10,6 +10,7 @@ import Ambient from './components/Ambient.jsx';
 import { MenuIcon, PencilIcon } from './components/Icons.jsx';
 import { cleanSubject, extractEmailAddress } from './lib/format.js';
 import { buildMessageBody, buildMessageText } from './lib/mailTemplate.js';
+import { generateAutoTeaser } from './lib/teaser.js';
 
 /* ============================================================
    Agora Mail — webmail for @agora.in.net
@@ -74,9 +75,6 @@ export default function AgoraMail() {
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [to, setTo] = useState('');
   const [subject, setSubject] = useState('');
-  /* Inbox preview text: the snippet clients show next to the subject. Empty
-     means the worker/client fall back to the opening of the message. */
-  const [previewText, setPreviewText] = useState('');
   const [body, setBody] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [replyingTo, setReplyingTo] = useState(null);
@@ -342,7 +340,6 @@ export default function AgoraMail() {
     /* Subjects are stored entity-encoded; decode before editing or sending. */
     const decodedSubject = cleanSubject(replyTo?.subject || '');
     setSubject(replyTo ? (/^re:/i.test(decodedSubject) ? decodedSubject : `Re: ${decodedSubject}`) : '');
-    setPreviewText('');
     setBody('');
     setAttachments([]);
     setSendError('');
@@ -354,7 +351,6 @@ export default function AgoraMail() {
     if (sending) return;
     setIsComposeOpen(false);
     setReplyingTo(null);
-    setPreviewText('');
     setSendError('');
   };
 
@@ -421,6 +417,9 @@ export default function AgoraMail() {
          this is just the message it wraps. */
       const finalHtml = buildMessageBody({ body, replyingTo });
       const finalText = buildMessageText({ body, replyingTo });
+      /* The teaser is written here, not by the sender: it has to differ from
+         the words the body opens with, or the inbox line stutters. */
+      const autoPreview = generateAutoTeaser(body, subject, Boolean(replyingTo), attachments.length);
 
       const response = await fetch(MAIL_SENDER_URL, {
         method: 'POST',
@@ -428,9 +427,9 @@ export default function AgoraMail() {
         body: JSON.stringify({
           to: recipient,
           subject,
-          /* The worker sets this as the inbox preheader; when it is blank the
-             client falls back to the opening of the message. */
-          previewText: previewText.trim(),
+          /* The worker renders this as the hidden preheader, so Gmail and the
+             Sent row show a summary rather than the body's first line. */
+          previewText: autoPreview,
           html: finalHtml,
           /* A clean text part keeps wrappers out of notification previews.
              Workers that build their own text part simply ignore it. */
@@ -454,7 +453,6 @@ export default function AgoraMail() {
       setReplyingTo(null);
       setTo('');
       setSubject('');
-      setPreviewText('');
       setBody('');
       setAttachments([]);
 
@@ -605,8 +603,6 @@ export default function AgoraMail() {
             onToChange={setTo}
             subject={subject}
             onSubjectChange={setSubject}
-            previewText={previewText}
-            onPreviewTextChange={setPreviewText}
             body={body}
             onBodyChange={setBody}
             attachments={attachments}

@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import deployedWorker from './deployed-worker.mjs';
 import repoWorker from '../worker/agora-mail-sender.js';
 import { buildMessageBody, buildMessageText, MAIL_BRAND } from '../src/lib/mailTemplate.js';
+import { generateAutoTeaser } from '../src/lib/teaser.js';
 
 const env = {
   RESEND_API_KEY: 'test-key',
@@ -215,5 +216,58 @@ test('both workers: the quoted original is sanitised', () => {
   assert.doesNotMatch(html, /<script/i);
   assert.doesNotMatch(html, /onclick/i);
   assert.doesNotMatch(html, /javascript:/i);
-  assert.equal(MAIL_BRAND.quoteRule, '#6D5BD0');
+  assert.equal(MAIL_BRAND.quoteRule, '#a855f7');
+});
+
+/* ---- the inbox line ---------------------------------------------------- */
+
+const preheaderOf = (resend) =>
+  resend.html
+    .match(/display:\s*none[^>]*>([\s\S]*?)<\/div>/i)[1]
+    .replace(/&#8203;|&nbsp;|\u200b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+test('the auto teaser becomes the preheader, and does not echo the body', async () => {
+  const body = 'Do you see this content in the preview of the mail?';
+  const subject = 'Test message';
+  const teaser = generateAutoTeaser(body, subject);
+  const html = buildMessageBody({ body });
+  const text = buildMessageText({ body });
+
+  for (const worker of [deployedWorker, repoWorker]) {
+    const { resend, stored } = await deliver(worker, {
+      subject,
+      previewText: teaser,
+      html,
+      text,
+    });
+
+    const preheader = preheaderOf(resend);
+    assert.ok(preheader.startsWith(teaser), preheader);
+    assert.doesNotMatch(preheader, /do you see this content/i);
+    /* The line still carries the body, but as a second clause after the
+       teaser — never as its own repeat. */
+    assert.equal(preheader.indexOf(teaser), 0);
+
+    /* The Sent row previews exactly one thing: the deployed worker stores the
+       teaser line, the repo worker stores the body itself. Neither repeats
+       the other. */
+    if (worker === deployedWorker) {
+      assert.ok(stored.text_body.startsWith(teaser), stored.text_body);
+    } else {
+      assert.match(stored.text_body, /^Do you see this content/);
+      assert.ok(!stored.text_body.includes(teaser));
+    }
+  }
+});
+
+test('outgoing mail is light ink on the worker’s dark card', () => {
+  const html = buildMessageBody({ body: 'Hi Jay,\n\nSaturday works.', replyingTo: REPLY_TO });
+
+  assert.match(html, /color:#f4f4f5/);
+  assert.doesNotMatch(html, /#111\b|#000\b/);
+  assert.match(html, /data-reply-quote="true"/);
+  assert.match(html, /border-left:3px solid #a855f7/);
+  assert.match(html, /color:#a1a1aa/);
 });

@@ -69,6 +69,7 @@ src/
     Icons.jsx           stroke icon set
   lib/format.js         addresses, dates, snippets, escaping
   lib/emailTheme.js     re-tones inbound HTML for the dark reading card
+  lib/teaser.js         writes the inbox teaser (preheader) from a message
   lib/mailTemplate.js   message fragment + text twin for the sender worker
 worker/
   agora-mail-sender.js  Cloudflare Worker: wraps the fragment, sends via Resend
@@ -79,18 +80,29 @@ test/
 
 ## Behaviour notes
 
+- **List previews** draw once from the text part (falling back to the HTML), drop the
+  subject when the body opens by repeating it, and cut at 65 characters, so a row never
+  shows the same line twice.
 - Every mailbox action is optimistic: read state flips immediately, moves and deletions
   leave the list at once, and failures surface as a toast instead of an `alert()`.
 - A 401 from PostgREST clears the stored session and returns the visitor to sign-in with
   an explanation.
 - The composer escapes typed text before it becomes outgoing HTML, caps attachments at
   10 files / 25 MB each, and closes on `Escape` with focus trapped inside the dialog.
-- **Inbox preview text.** The composer takes an optional snippet under the subject. It is
-  sent to the worker as `previewText` and, when filled, written into the message as a
-  hidden preheader; left blank, the field is omitted so clients fall back to the opening
-  of the message rather than to duplicated wrapper copy. It resets on cancel and on send.
+- **Inbox teaser, written automatically.** There is no preview field to fill in. On send,
+  `lib/teaser.js` writes the line clients show beside the subject and passes it to the
+  worker as `previewText`: a later sentence of the message when there is one, otherwise a
+  short description built from the subject and the shape of the message ("A short note
+  about Q3 deck", "Reply regarding Review timing · 2 attachments"). The rule is that the
+  teaser never opens with the words the body opens with — otherwise Gmail fills its line
+  with the preheader and then the same words again, which is the "Do you see this content…
+  Do you see this content…" stutter. Teasers are capped at 90 characters, cut on a word
+  boundary, and the Sent row previews the same line.
 - **Reply quotes** carry `data-reply-quote="true"` on the wrapper, so the worker can drop
-  the old thread when it builds the inbox snippet — a reply previews the reply.
+  the old thread when it builds the inbox snippet — a reply previews the reply. The quote
+  is ruled in violet (`#a855f7`) and set in the card's muted grey (`#a1a1aa`), while the
+  message itself is `#f4f4f5` — the ink of the worker's `#121216` card, so nothing lands
+  as black-on-black.
 - **The reading surface is dark.** A message renders on the app's own card — `#121216`
   with a `#27272a` hairline, `#f4f4f5` ink — rather than on white paper, so the reader
   looks like the rest of Agora. Mail is authored for white, though, so `lib/emailTheme.js`

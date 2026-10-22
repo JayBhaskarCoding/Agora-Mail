@@ -169,13 +169,15 @@ export default function EmailList({
                   ? `To: ${displayName(email.to_address)}`
                   : displayName(email.from_address);
               /* Entities, tags and the worker's wrapper copy never reach the
-                 list: cleanPreview decodes and strips them first. */
+                 list: cleanPreview decodes and strips them first. The snippet
+                 is drawn once, from the text part when there is one, cut to a
+                 single inbox-sized line so a row never repeats itself. */
               const preview = snippet(
                 trimLeadingSubject(
                   cleanPreview(email.text_body || email.html_body),
                   email.subject,
                 ),
-                180,
+                65,
               );
 
               return (
