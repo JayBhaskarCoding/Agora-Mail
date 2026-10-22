@@ -90,39 +90,58 @@ function usableMailbox(value) {
  * some imports — an array or a JSON string of one. Returns the mailbox as
  * written (so its display name survives) or '' when there is nothing usable.
  */
-export function firstMailbox(value) {
+export function mailboxesIn(value) {
   if (Array.isArray(value)) {
+    const found = [];
     for (const entry of value) {
-      const found = firstMailbox(entry);
-      if (found) return found;
+      for (const mailbox of mailboxesIn(entry)) {
+        if (!found.includes(mailbox)) found.push(mailbox);
+      }
     }
-    return '';
+    return found;
   }
 
-  if (value === null || value === undefined) return '';
+  if (value === null || value === undefined) return [];
 
   /* Headers arrive HTML-escaped often enough (`List &lt;list@x.dev&gt;`)
      that decoding first is the difference between a usable target and a
      fallback. */
   const raw = decodeEntities(String(value)).trim();
-  if (!raw) return '';
+  if (!raw) return [];
 
   if (raw.startsWith('[')) {
     try {
       const parsed = JSON.parse(raw);
-      const found = firstMailbox(parsed);
-      if (found) return found;
+      const found = mailboxesIn(parsed);
+      if (found.length > 0) return found;
     } catch {
       /* not JSON after all — treat it as a plain header value */
     }
   }
 
+  const found = [];
   for (const part of splitMailboxes(raw)) {
-    const usable = usableMailbox(part);
-    if (usable) return usable;
+    const mailbox = usableMailbox(part);
+    if (mailbox && !found.includes(mailbox)) found.push(mailbox);
   }
 
-  return '';
+  return found;
+}
+
+/** The first address in a header value that can be replied to. */
+export function firstMailbox(value) {
+  return mailboxesIn(value)[0] || '';
+}
+
+/* Addresses that, by convention, do not take replies. A moderation notice
+   from `noreply@agora.in.net` is the case worth catching: if the same value
+   also lists a person, the person is the target. */
+const NO_REPLY =
+  /^(?:no-?reply|do-?not-?reply|donotreply|mailer-daemon|postmaster|bounce[sd]?|notifications?)(?:[+._-].*)?@/i;
+
+/** True when this mailbox is one that cannot receive an answer. */
+export function isNoReplyAddress(value = '') {
+  return NO_REPLY.test(extractEmailAddress(value).toLowerCase());
 }
 
 /**
@@ -164,18 +183,26 @@ export function replyAddressFor(email = {}, { selfAddresses = [] } = {}) {
     ? [message.reply_to, message.replyTo, message.to_address, message.to, message.from_address, message.from]
     : [message.reply_to, message.replyTo, message.from_address, message.from];
 
+  /* Every address the message offers, in the order it offers them. */
   const usable = [];
   for (const candidate of candidates) {
-    const mailbox = firstMailbox(candidate);
-    if (mailbox && !usable.includes(mailbox)) usable.push(mailbox);
+    for (const mailbox of mailboxesIn(candidate)) {
+      if (!usable.includes(mailbox)) usable.push(mailbox);
+    }
   }
 
-  /* Never address one of our own mailboxes while a person is available. */
-  const external = usable.find(
-    (mailbox) => !self.has(extractEmailAddress(mailbox).toLowerCase()),
-  );
+  const isSelf = (mailbox) => self.has(extractEmailAddress(mailbox).toLowerCase());
+  const replyable = (mailbox) => !isSelf(mailbox) && !isNoReplyAddress(mailbox);
 
-  return external || usable[0] || '';
+  /* A person who can answer beats a robot: our own mailboxes and no-reply
+     senders are only used when the message names nothing else. */
+  return (
+    usable.find(replyable) ||
+    usable.find((mailbox) => !isSelf(mailbox)) ||
+    usable.find((mailbox) => !isNoReplyAddress(mailbox)) ||
+    usable[0] ||
+    ''
+  );
 }
 
 /**

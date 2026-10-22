@@ -7,6 +7,8 @@ import assert from 'node:assert/strict';
 import {
   displayName,
   firstMailbox,
+  isNoReplyAddress,
+  mailboxesIn,
   parseAddress,
   recipientLabel,
   replyAddressFor,
@@ -215,4 +217,62 @@ test('firstMailbox tidies a mailbox without inventing one', () => {
   assert.equal(firstMailbox('meera@x.dev'), 'meera@x.dev');
   assert.equal(firstMailbox('<>'), '');
   assert.equal(firstMailbox(''), '');
+});
+
+test('a no-reply sender never wins over a person in the same message', () => {
+  /* A header that lists the robot first, the reporter second. */
+  assert.equal(
+    replyAddressFor({
+      folder: 'inbox',
+      from_address: 'Agora <noreply@agora.in.net>',
+      reply_to: 'noreply@agora.in.net, reporter@example.com',
+    }),
+    'reporter@example.com',
+  );
+
+  /* A useless Reply-To leaves the real sender as the only way to answer. */
+  assert.equal(
+    replyAddressFor({
+      folder: 'inbox',
+      from_address: 'Reporter <reporter@example.com>',
+      reply_to: 'no-reply@agora.in.net',
+    }),
+    'Reporter <reporter@example.com>',
+  );
+});
+
+test('a no-reply address is still used when it is all there is', () => {
+  assert.equal(
+    replyAddressFor({ folder: 'inbox', from_address: 'Agora <noreply@agora.in.net>' }),
+    'Agora <noreply@agora.in.net>',
+  );
+});
+
+test('no-reply detection covers the usual spellings', () => {
+  for (const value of [
+    'noreply@agora.in.net',
+    'no-reply@agora.in.net',
+    'donotreply@x.dev',
+    'do-not-reply@x.dev',
+    'mailer-daemon@x.dev',
+    'postmaster@x.dev',
+    'bounces@x.dev',
+    'notifications@x.dev',
+    'Noreply <NOREPLY@Agora.in.net>',
+  ]) {
+    assert.equal(isNoReplyAddress(value), true, value);
+  }
+
+  for (const value of ['reporter@example.com', 'riya.sen@example.com', 'replies@x.dev', 'hello@x.dev', '']) {
+    assert.equal(isNoReplyAddress(value), false, value);
+  }
+});
+
+test('every mailbox in a header is offered, once, in order', () => {
+  assert.deepEqual(mailboxesIn('a@x.dev, "Rao, Meera" <b@x.dev>, a@x.dev'), [
+    'a@x.dev',
+    'Rao, Meera <b@x.dev>',
+  ]);
+  assert.deepEqual(mailboxesIn(['a@x.dev', 'b@x.dev']), ['a@x.dev', 'b@x.dev']);
+  assert.deepEqual(mailboxesIn('<>'), []);
 });

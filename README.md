@@ -145,8 +145,12 @@ test/
 
   A candidate that is one of our own mailboxes is skipped while another usable one
   remains: outgoing mail is stored with `reply_to` set to the sender, so without that
-  guard a reply to something we sent would return to us. A message in Sent puts its
-  recipient before its sender for the same reason. A header stored as `Name <address>`,
+  guard a reply to something we sent would return to us. The same preference skips
+  no-reply addresses (`noreply@`, `do-not-reply@`, `postmaster@`, `mailer-daemon@`,
+  `bounces@`, `notifications@`) whenever a person is available — if a header lists the
+  robot first and the reporter second, the reporter wins; a no-reply address is only
+  used when the message offers nothing else. A message in Sent puts its recipient before
+  its sender for the same reason. A header stored as `Name <address>`,
   as a comma-separated list, as an array, as JSON, or HTML-escaped all resolve to the
   first real address; anything unusable (blank, `[]`, `<>`, a bare name) falls back
   rather than leaving the composer empty. The reader header's *Reply* and the inline
