@@ -86,6 +86,8 @@ export default function ComposeModal({
     : '';
   const resolvedReply = extractEmailAddress(replyAddress);
   const rerouted =
+    Boolean(replyingTo) &&
+    replyingTo.folder !== 'sent' &&
     Boolean(resolvedReply) &&
     Boolean(senderAddress) &&
     resolvedReply.toLowerCase() !== senderAddress.toLowerCase();

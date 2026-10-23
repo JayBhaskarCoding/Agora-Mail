@@ -13,13 +13,14 @@ import {
   XIcon,
 } from './Icons.jsx';
 import {
+  extractEmailAddress,
   formatFullTime,
   formatListTime,
   parseAddress,
   plainBody,
-  replyAddressFor,
   sanitizeEmailHtml,
 } from '../lib/format.js';
+import { resolveReplyEmail } from '../lib/replyTarget.js';
 import { themeEmailHtml } from '../lib/emailTheme.js';
 import {
   extractMessageHtml,
@@ -73,6 +74,7 @@ function ThreadMessage({
   outgoing,
   expanded,
   view,
+  replyTo = '',
   onToggle,
   onViewChange,
   actions,
@@ -111,12 +113,23 @@ function ThreadMessage({
   const who = outgoing ? 'You' : from.display;
   const avatarName = from.display;
   const toLabel = to.name || to.address;
-  const meta = [
-    outgoing ? `to ${toLabel || 'recipient'}` : from.address || from.display,
-    formatFullTime(email.created_at),
-  ]
-    .filter(Boolean)
-    .join(' · ');
+  /* A reply does not always go back to the sender: a moderation report is
+     answered at the reporter's address, so the card says where answers land
+     rather than leaving the no-reply sender as the only clue. */
+  const replyToAddress = extractEmailAddress(replyTo);
+  const senderAddress = from.address || '';
+  const rerouted =
+    !outgoing &&
+    Boolean(replyToAddress) &&
+    replyToAddress.toLowerCase() !== senderAddress.toLowerCase();
+
+  const senderLine = outgoing
+    ? `to ${toLabel || 'recipient'}`
+    : rerouted
+      ? `${senderAddress || from.display} • Reply-To: ${replyToAddress}`
+      : senderAddress || from.display;
+
+  const meta = [senderLine, formatFullTime(email.created_at)].filter(Boolean).join(' · ');
 
   if (!expanded) {
     return (
@@ -162,7 +175,9 @@ function ThreadMessage({
               {outgoing ? 'Sent by you' : 'Received'}
             </span>
           </p>
-          <p className="mt-0.5 truncate text-[0.7rem] text-[#a1a1aa]">{meta}</p>
+          {/* A long reporter address must stay readable, so this line wraps
+              instead of truncating. */}
+          <p className="mt-0.5 break-words text-[0.7rem] text-[#a1a1aa]">{meta}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {actions}
@@ -247,6 +262,7 @@ export default function MailReader({
   busy,
   onReply,
   onSendReply,
+  replyAddress = '',
   onTrash,
   onTrashThread,
   onRestore,
@@ -285,6 +301,16 @@ export default function MailReader({
     if (replyOpen) replyRef.current?.focus();
   }, [replyOpen]);
 
+  /* Where each card says it will send an answer, resolved once per message.
+     Declared before the empty state so the hook order never changes. */
+  const replyTargets = useMemo(() => {
+    const found = new Map();
+    for (const message of messages) {
+      found.set(message.id, resolveReplyEmail(message, messages, { selfAddresses }));
+    }
+    return found;
+  }, [messages, selfAddresses]);
+
   if (!thread || !latest) return <ReaderEmpty onCompose={onCompose} />;
 
   const allExpanded = messages.every((message) => expandedIds.includes(message.id));
@@ -309,12 +335,20 @@ export default function MailReader({
       : parseAddress(latest.from_address).display;
 
   const replyTarget = latest;
-  /* The address the reply will actually go to: Reply-To when the message
-     names one, otherwise its sender (or its recipient, in Sent). */
-  const replyAddress = replyAddressFor(replyTarget, { selfAddresses });
-  const replyMailbox = parseAddress(replyAddress);
-  const replyName = replyMailbox.display;
-  const replyEmail = replyMailbox.address || replyAddress;
+  /* The address the reply will actually go to. The App resolves it against
+     the whole conversation — a moderation report is answered at the reporter's
+     address found inside it — and the fallback keeps the reader usable on its
+     own. */
+  const resolvedReply =
+    replyAddress || resolveReplyEmail(replyTarget, messages, { selfAddresses });
+  const replyMailbox = parseAddress(resolvedReply);
+  const replyEmail = extractEmailAddress(resolvedReply);
+  const senderAddress = extractEmailAddress(replyTarget.from_address || replyTarget.from || '');
+  const replyName =
+    replyMailbox.name ||
+    (replyEmail.toLowerCase() !== senderAddress.toLowerCase()
+      ? replyEmail.split('@')[0]
+      : replyMailbox.display);
 
   const submitReply = async (event) => {
     event.preventDefault();
@@ -328,7 +362,7 @@ export default function MailReader({
     setReplySending(true);
     setReplyError('');
 
-    const result = await onSendReply?.(replyTarget, replyBody.trim());
+    const result = await onSendReply?.(replyTarget, replyBody.trim(), replyEmail);
     setReplySending(false);
 
     if (result?.ok) {
@@ -454,6 +488,7 @@ export default function MailReader({
               outgoing={isOutgoingMessage(email, selfAddresses)}
               expanded={expandedIds.includes(email.id)}
               view={views[email.id] || 'rendered'}
+              replyTo={replyTargets.get(email.id) || ''}
               onToggle={() => toggleMessage(email.id)}
               onViewChange={(next) => setViews((current) => ({ ...current, [email.id]: next }))}
               actions={messageActions(email)}
@@ -525,7 +560,7 @@ export default function MailReader({
                 disabled={busy}
               >
                 <ReplyIcon size={15} />
-                Reply to {replyName}
+                <span className="truncate">Reply to {replyName}</span>
               </button>
             )}
           </section>

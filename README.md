@@ -72,6 +72,7 @@ src/
   lib/emailTheme.js     re-tones inbound HTML for the dark reading card
   lib/teaser.js         writes the inbox teaser (preheader) from a message
   lib/threads.js        conversation grouping, quote stripping, row previews
+  lib/replyTarget.js    who a reply belongs to (moderation reports included)
   lib/selection.js      selection set arithmetic, ids behind a bulk action
   lib/mailTemplate.js   message fragment + text twin for the sender worker
 worker/
@@ -134,7 +135,22 @@ test/
 - **Replying stays in context.** Each conversation ends with an inline reply box that
   names the recipient and the `Re:` subject it will send, and posts through the same
   `sendMessage` path as the composer — same envelope, text part, teaser and worker.
-- **Reply goes where the message asks.** `replyAddressFor()` in `lib/format.js` resolves
+- **Moderation reports answer to the reporter.** The `emails` table has no Reply-To
+  column, so a report arrives from `noreply@agora.in.net` with the reporter named only
+  inside the body. `resolveReplyEmail(message, threadMessages)` in
+  `lib/replyTarget.js` spots a report by its sender or a subject beginning `[Report:`,
+  then reads the reporter out of the bodies — every `mailto:` link first, then a
+  `Registered Email:` line — skipping `mail@agora.in.net`, `noreply@agora.in.net` and
+  any other no-reply address, and preferring a person over the moderator's own
+  mailbox. Resolving against the whole thread means a report still resolves after it
+  has been answered once. Everything else falls through to `reply_to` → `replyTo` →
+  `from_address` → `from`.
+  The same answer reaches every surface: the header's *Reply* fills the composer's
+  `To` with `jayvardhanbhaskar123@gmail.com` rather than the robot; the inline reply
+  box prints `To jayvardhanbhaskar123@gmail.com` and posts to exactly that address;
+  and the message card reads `noreply@agora.in.net • Reply-To:
+  jayvardhanbhaskar123@gmail.com`, so the reroute is visible before the reply starts.
+- **Other mail replies where it asks.** `replyAddressFor()` in `lib/format.js` resolves
   a message's target in this order:
   1. `reply_to`, then `replyTo` — mailing lists, ticketing systems and no-reply senders
      name the mailbox that should receive answers. A moderation report sent from

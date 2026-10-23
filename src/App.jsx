@@ -9,10 +9,11 @@ import Toasts, { useToasts } from './components/Toasts.jsx';
 import { BrandLockup } from './components/Brand.jsx';
 import Ambient from './components/Ambient.jsx';
 import { MenuIcon, PencilIcon } from './components/Icons.jsx';
-import { extractEmailAddress, replyAddressFor } from './lib/format.js';
+import { extractEmailAddress } from './lib/format.js';
 import { buildMessageBody, buildMessageText } from './lib/mailTemplate.js';
 import { generateAutoTeaser } from './lib/teaser.js';
 import { groupIntoThreads, replySubject, threadKeyFor } from './lib/threads.js';
+import { resolveReplyEmail } from './lib/replyTarget.js';
 import {
   messageIdsForThreads,
   pruneKeys,
@@ -96,6 +97,9 @@ export default function AgoraMail() {
   const [body, setBody] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [replyingTo, setReplyingTo] = useState(null);
+  /* What the message actually resolves to — a reporter's address, not the
+     no-reply sender the row was delivered from. */
+  const [replyTargetAddress, setReplyTargetAddress] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
 
@@ -560,14 +564,18 @@ export default function AgoraMail() {
 
   /* ---- Composing ----------------------------------------------------- */
 
-  const openCompose = ({ replyTo = null } = {}) => {
+  const openCompose = ({ replyTo = null, thread = null } = {}) => {
     setReplyingTo(replyTo);
-    /* The message decides: its Reply-To first (a moderation report names the
-       reporter there), then its sender. Our own mailboxes are skipped, so a
-       reply never comes back to Agora instead of reaching a person. */
-    setTo(
-      replyTo ? extractEmailAddress(replyAddressFor(replyTo, { selfAddresses })) : '',
-    );
+
+    /* A moderation report is addressed to the reporter named inside it, not
+       to the noreply mailbox it arrived from; everything else answers to its
+       sender (or, when we wrote it, its recipient). Resolving against the
+       conversation lets the report still be found once it has been answered. */
+    const target = replyTo
+      ? resolveReplyEmail(replyTo, thread?.emails || [replyTo], { selfAddresses })
+      : '';
+    setReplyTargetAddress(target);
+    setTo(extractEmailAddress(target));
     setSubject(replyTo ? replySubject(replyTo.subject) : '');
     setBody('');
     setAttachments([]);
@@ -580,6 +588,7 @@ export default function AgoraMail() {
     if (sending) return;
     setIsComposeOpen(false);
     setReplyingTo(null);
+    setReplyTargetAddress('');
     setSendError('');
   };
 
@@ -728,6 +737,7 @@ export default function AgoraMail() {
     pushToast('Message sent.', 'success');
     setIsComposeOpen(false);
     setReplyingTo(null);
+    setReplyTargetAddress('');
     setTo('');
     setSubject('');
     setBody('');
@@ -743,13 +753,13 @@ export default function AgoraMail() {
   };
 
   /** Reply from the bottom of a conversation, without leaving it. */
-  const handleInlineReply = async (email, messageBody) => {
+  const handleInlineReply = async (email, messageBody, resolvedAddress = '') => {
     if (!email) return { ok: false, error: 'There is no message to reply to.' };
 
     const result = await sendMessage({
-      /* Same resolver as the header's Reply button, so the two can never send
-         to different people. */
-      to: replyAddressFor(email, { selfAddresses }),
+      /* The reader passes back the address it printed, so the To line on
+         screen is the address in the POST body. */
+      to: resolvedAddress || resolveReplyEmail(email, [email], { selfAddresses }),
       subject: replySubject(email.subject),
       body: messageBody,
       replyingTo: email,
@@ -791,6 +801,18 @@ export default function AgoraMail() {
   const selectedThread = useMemo(
     () => threads.find((thread) => thread.key === selectedThreadKey) || null,
     [threads, selectedThreadKey],
+  );
+
+  /* The writer for the open conversation: the reporter behind a moderation
+     report, or the person on the other side of an ordinary thread. Resolved
+     once here so the reader's To line, its Reply button and the message that
+     is sent all come from the same answer. */
+  const resolvedReplyAddress = useMemo(
+    () =>
+      selectedThread
+        ? resolveReplyEmail(selectedThread.latest, selectedThread.emails, { selfAddresses })
+        : '',
+    [selectedThread, selfAddresses],
   );
 
   /* A selection is a set of thread keys; everything below turns it into the
@@ -1090,8 +1112,9 @@ export default function AgoraMail() {
                 folder={activeFolder}
                 label={folderLabel}
                 busy={busy}
-                onReply={(email) => openCompose({ replyTo: email })}
+                onReply={(email) => openCompose({ replyTo: email, thread: selectedThread })}
                 onSendReply={handleInlineReply}
+                replyAddress={resolvedReplyAddress}
                 onTrash={(email) => updateEmailFolder(email, 'trash')}
                 onTrashThread={moveThreadToTrash}
                 onRestore={(email) => updateEmailFolder(email, 'inbox')}
@@ -1108,7 +1131,7 @@ export default function AgoraMail() {
             replyingTo={replyingTo}
             /* The same resolution the To field was filled from, so the card
                can say when answers go somewhere other than the sender. */
-            replyAddress={replyingTo ? replyAddressFor(replyingTo, { selfAddresses }) : ''}
+            replyAddress={replyTargetAddress}
             fromAddress={SENDER_ADDRESS}
             to={to}
             onToChange={setTo}
