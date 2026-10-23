@@ -28,6 +28,18 @@ const REGISTERED_SOURCE =
    reports, the other is the service address. */
 const SYSTEM_ADDRESSES = new Set(['mail@agora.in.net', 'noreply@agora.in.net']);
 
+/* Contact-form feedback arrives from this mailbox, but the person who wrote it
+   is named only in the body. */
+const CONTACT_ADDRESS = 'contact@agora.in.net';
+const CONTACT_SENDER = /\bAgora\s+Contact\s+Form\b/i;
+/* `New Agora Feedback: …`, and the `Re:`/`Fwd:` variants a thread accumulates. */
+const CONTACT_SUBJECT = /^\s*(?:(?:re|fwd|fw)\s*:\s*)*New\s+Agora\s+Feedback\s*:/i;
+
+/* The labeled field beats a link: a template's `Email:` line is the submitter's
+   address, while a `mailto:` can be any anchor in the card. */
+const EMAIL_FIELD_SOURCE =
+  'Email:[\\s\\S]{0,100}?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})';
+
 const REPORT_SUBJECT = /^\s*\[report:/i;
 
 /* The handle a report names for the reporter — `Report by @ron`. */
@@ -81,6 +93,24 @@ export function isModerationReport(message) {
   if (sender && (SYSTEM_ADDRESSES.has(sender) || isNoReplyAddress(sender))) return true;
 
   return REPORT_SUBJECT.test(String(message.subject || ''));
+}
+
+/**
+ * Did this message arrive through Agora's contact form?
+ *
+ * The form posts from `contact@agora.in.net`, so the sender is a robot and the
+ * person who wrote the feedback exists only inside the body. The subject the
+ * form generates (`New Agora Feedback: …`) identifies it even once the thread
+ * has grown a `Re:` prefix.
+ */
+export function isContactForm(message) {
+  if (!message) return false;
+
+  const from = String(message.from_address || message.from || '');
+  if (extractEmailAddress(from).toLowerCase() === CONTACT_ADDRESS) return true;
+  if (CONTACT_SENDER.test(from)) return true;
+
+  return CONTACT_SUBJECT.test(String(message.subject || ''));
 }
 
 /** The bodies worth searching, HTML first — it holds the anchors. */
@@ -177,6 +207,48 @@ export function reporterHandle(messages = []) {
 }
 
 /**
+ * The submitter behind a contact-form message, read out of its body.
+ *
+ * Two passes, the labeled field first and the `mailto:` anchors second, so a
+ * decorative link in the template never beats the `Email:` line. The address
+ * the form itself posts from, Agora's own mailboxes and our own account are
+ * all skipped: none of them is the person who wrote in.
+ *
+ * Returns '' when the message names nobody we could write to.
+ */
+function submitterFromThread(messages, { selfAddresses = [] } = {}) {
+  const self = new Set(
+    (Array.isArray(selfAddresses) ? selfAddresses : [selfAddresses])
+      .filter(Boolean)
+      .map((value) => extractEmailAddress(value).toLowerCase())
+      .filter(Boolean),
+  );
+
+  const usable = (address) => {
+    const lower = String(address || '').trim().toLowerCase();
+    if (!lower) return '';
+    if (lower === CONTACT_ADDRESS || SYSTEM_ADDRESSES.has(lower)) return '';
+    if (isNoReplyAddress(lower) || self.has(lower)) return '';
+    return String(address).trim();
+  };
+
+  for (const source of [EMAIL_FIELD_SOURCE, MAILTO_SOURCE]) {
+    for (const message of messages) {
+      for (const body of bodiesOf(message)) {
+        /* Styles and scripts can hide an address that is not content. */
+        const clean = stripStyleAndScript(body);
+        for (const address of addressesFrom(clean, source)) {
+          const found = usable(address);
+          if (found) return found;
+        }
+      }
+    }
+  }
+
+  return '';
+}
+
+/**
  * The address a reply to this message should be sent to.
  *
  * @param {object} emailObj        the message whose Reply button was pressed
@@ -191,6 +263,14 @@ export function resolveReplyEmail(emailObj, threadMessages = [], { selfAddresses
   /* The message being replied to leads; the rest of the conversation follows
      so a report still resolves after we have answered it once. */
   const messages = [target, ...thread.filter((message) => message !== target)];
+
+  /* Contact-form feedback answers to its submitter, not to the robot that
+     posted it. The sender, the subject or any message in the thread can
+     identify the form; the address is always in a body. */
+  if (messages.some(isContactForm)) {
+    const submitter = submitterFromThread(messages, { selfAddresses });
+    if (submitter) return submitter;
+  }
 
   if (messages.some(isModerationReport)) {
     const reporter = reporterFromThread(messages, { selfAddresses });

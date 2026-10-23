@@ -205,6 +205,16 @@ test/
   drop from the list, the on-screen resolution copy, and the stored status. Each id is
   attempted once per session, so a failed delete is a toast rather than a request loop,
   and a one-minute clock keeps the countdown honest while the tab sits open.
+- **Contact-form feedback answers the submitter.** Messages from
+  `contact@agora.in.net`, or whose subject opens `New Agora Feedback:`, are the
+  website's contact form: the sender is a robot and the person who wrote in is
+  named only inside the body. `resolveReplyEmail()` recognises the form and
+  returns the submitter's address from the `Email:` field — or, when the
+  template prints none, from the first `mailto:` anchor — skipping
+  `contact@agora.in.net`, Agora's own mailboxes, no-reply addresses and the
+  signed-in account. So the header's *Reply*, the composer's `To` and the
+  inline reply box all target `jayvardhanbhaskar123@gmail.com` rather than the
+  form's robot, and the card still shows where the answer went.
 - **Other mail replies where it asks.** `replyAddressFor()` in `lib/format.js` resolves
   a message's target in this order:
   1. `reply_to`, then `replyTo` — mailing lists, ticketing systems and no-reply senders

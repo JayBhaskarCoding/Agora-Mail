@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  isContactForm,
   isModerationReport,
   reporterHandle,
   resolveReplyEmail,
@@ -202,4 +203,96 @@ test('ordinary mail has no reporter handle', () => {
   );
   assert.equal(reporterHandle([]), '');
   assert.equal(reporterHandle(), '');
+});
+
+
+/* ---- contact-form feedback ------------------------------------------- */
+
+const feedback = (extra = {}) => ({
+  id: 'f1',
+  folder: 'inbox',
+  subject: 'New Agora Feedback: Dark mode is lovely',
+  from_address: 'Agora Contact Form <contact@agora.in.net>',
+  to_address: 'jay@agora.in.net',
+  html_body:
+    '<div><p>Name: Jayvardhan</p><p>Email: jayvardhanbhaskar123@gmail.com</p>' +
+    '<p>Message: Keep the quiet rooms.</p>' +
+    '<a href="mailto:mail@agora.in.net">Contact Agora</a></div>',
+  text_body:
+    'New Agora Feedback\nName: Jayvardhan\nEmail: jayvardhanbhaskar123@gmail.com\nKeep the quiet rooms.',
+  ...extra,
+});
+
+test('contact-form feedback is recognised by subject or sender', () => {
+  assert.equal(isContactForm(feedback()), true);
+  assert.equal(isContactForm(feedback({ subject: 'Hello' })), true, 'the sender is enough');
+  assert.equal(isContactForm(feedback({ subject: 'Re: New Agora Feedback: Dark mode' })), true);
+  assert.equal(
+    isContactForm(feedback({ subject: 'Hello', from_address: 'Agora Contact Form <someone@agora.in.net>' })),
+    true,
+  );
+  assert.equal(
+    isContactForm({ subject: 'Notes on the New Agora Feedback: widget', from_address: 'Meera <meera@example.com>' }),
+    false,
+    'the phrase has to open the subject',
+  );
+  assert.equal(isContactForm(null), false);
+});
+
+test('feedback answers the submitter, not the contact-form robot', () => {
+  assert.equal(resolveReplyEmail(feedback(), [feedback()], { selfAddresses: SELF }), 'jayvardhanbhaskar123@gmail.com');
+});
+
+test('the labeled Email: field beats a decorative mailto link', () => {
+  const message = feedback({
+    html_body:
+      '<a href="mailto:someone@example.com">Our site</a><p>Email: jayvardhanbhaskar123@gmail.com</p>',
+    text_body: '',
+  });
+  assert.equal(resolveReplyEmail(message, [], { selfAddresses: SELF }), 'jayvardhanbhaskar123@gmail.com');
+});
+
+test('a mailto link is enough when the template prints no Email: line', () => {
+  const message = feedback({
+    subject: 'Hello',
+    html_body:
+      '<a href="mailto:mail@agora.in.net">Contact</a>' +
+      '<p>Write back to <a href="mailto:writer@example.com">writer@example.com</a></p>',
+    text_body: '',
+  });
+  assert.equal(resolveReplyEmail(message, [], { selfAddresses: SELF }), 'writer@example.com');
+});
+
+test('contact addresses are never the answer when a person is named', () => {
+  const message = feedback({
+    html_body:
+      '<p>Email: contact@agora.in.net</p><a href="mailto:noreply@agora.in.net">no reply</a>' +
+      '<p>Email: real@example.com</p>',
+    text_body: '',
+  });
+  assert.equal(resolveReplyEmail(message, [], { selfAddresses: SELF }), 'real@example.com');
+});
+
+test('an answered feedback thread still resolves to the submitter', () => {
+  const answer = {
+    id: 's1',
+    folder: 'sent',
+    subject: 'Re: New Agora Feedback: Dark mode is lovely',
+    from_address: 'Jay <jay@agora.in.net>',
+    to_address: 'jayvardhanbhaskar123@gmail.com',
+    html_body: '<p>Thank you — noted.</p>',
+    text_body: 'Thank you — noted.',
+  };
+  assert.equal(
+    resolveReplyEmail(answer, [feedback(), answer], { selfAddresses: SELF }),
+    'jayvardhanbhaskar123@gmail.com',
+  );
+});
+
+test('a form that names nobody falls back to its sender', () => {
+  const message = feedback({
+    html_body: '<p>Email: contact@agora.in.net</p>',
+    text_body: '',
+  });
+  assert.match(resolveReplyEmail(message, [], { selfAddresses: SELF }), /contact@agora\.in\.net/);
 });
