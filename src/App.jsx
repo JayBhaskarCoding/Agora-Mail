@@ -124,6 +124,9 @@ export default function AgoraMail() {
   const [body, setBody] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [replyingTo, setReplyingTo] = useState(null);
+  /* A forward is a new conversation that keeps the old subject, so the
+     composer needs to know which of the three modes it is in. */
+  const [forwarding, setForwarding] = useState(false);
   /* What the message actually resolves to — a reporter's address, not the
      no-reply sender the row was delivered from. */
   const [replyTargetAddress, setReplyTargetAddress] = useState('');
@@ -836,6 +839,7 @@ export default function AgoraMail() {
 
   const openCompose = ({ replyTo = null, thread = null, forward = false } = {}) => {
     setReplyingTo(replyTo);
+    setForwarding(Boolean(replyTo) && forward);
 
     /* A moderation report is addressed to the reporter named inside it, not
        to the noreply mailbox it arrived from; everything else answers to its
@@ -867,6 +871,7 @@ export default function AgoraMail() {
   };
 
   const closeCompose = () => {
+    setForwarding(false);
     if (sending) return;
     setIsComposeOpen(false);
     setReplyingTo(null);
@@ -1514,6 +1519,7 @@ export default function AgoraMail() {
         {isComposeOpen && (
           <ComposeModal
             replyingTo={replyingTo}
+            forwarding={forwarding}
             /* The same resolution the To field was filled from, so the card
                can say when answers go somewhere other than the sender. */
             replyAddress={replyTargetAddress}

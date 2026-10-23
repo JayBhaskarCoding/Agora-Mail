@@ -21,6 +21,7 @@ const MAX_ATTACHMENTS = 10;
 
 export default function ComposeModal({
   replyingTo,
+  forwarding = false,
   replyAddress = '',
   fromAddress,
   to,
@@ -109,9 +110,9 @@ export default function ComposeModal({
       >
         <header className="flex items-start justify-between gap-4 border-b border-line/10 px-5 pb-4 pt-5 sm:px-6">
           <div>
-            <p className="micro">{replyingTo ? 'Reply' : 'Compose'}</p>
+            <p className="micro">{forwarding ? 'Forward' : replyingTo ? 'Reply' : 'Compose'}</p>
             <h2 id="compose-title" className="mt-1 text-lg font-semibold tracking-tight text-ink">
-              {replyingTo ? 'Reply to message' : 'New message'}
+              {forwarding ? 'Forward message' : replyingTo ? 'Reply to message' : 'New message'}
             </h2>
           </div>
           <button
@@ -185,7 +186,7 @@ export default function ComposeModal({
               <div className="reply-ref">
                 <div className="min-w-0">
                   <p className="micro !text-[0.55rem]">
-                    Replying to {displayName(replyingTo.from_address)}
+                    {forwarding ? 'Forwarding' : 'Replying to'} {displayName(replyingTo.from_address)}
                   </p>
                   <p className="mt-1 text-xs font-semibold text-ink">
                     {cleanSubject(replyingTo.subject) || '(No subject)'}
@@ -212,7 +213,13 @@ export default function ComposeModal({
                 rows={8}
                 value={body}
                 onChange={(event) => onBodyChange(event.target.value)}
-                placeholder={replyingTo ? 'Write your reply…' : 'Write your message…'}
+                placeholder={
+                  forwarding
+                    ? 'Add a note to the forward…'
+                    : replyingTo
+                      ? 'Write your reply…'
+                      : 'Write your message…'
+                }
                 className="field-control field-control--area"
               />
             </div>
