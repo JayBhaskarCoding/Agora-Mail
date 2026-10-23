@@ -537,7 +537,7 @@ export default function MailReader({
                   <button
                     type="button"
                     onClick={() => onResolveReport?.(report)}
-                    className="btn btn--primary btn--sm"
+                    className="btn btn--brand btn--sm"
                     disabled={resolving}
                   >
                     {resolving ? (
