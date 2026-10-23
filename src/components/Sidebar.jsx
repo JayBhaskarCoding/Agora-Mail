@@ -1,9 +1,18 @@
 import React from 'react';
 import { BrandLockup } from './Brand.jsx';
-import { InboxIcon, LogOutIcon, PencilIcon, SendIcon, TrashIcon, XIcon } from './Icons.jsx';
+import {
+  InboxIcon,
+  LogOutIcon,
+  PencilIcon,
+  SendIcon,
+  ShieldIcon,
+  TrashIcon,
+  XIcon,
+} from './Icons.jsx';
 
 const FOLDERS = [
   { id: 'inbox', label: 'Inbox', Icon: InboxIcon },
+  { id: 'reports', label: 'Reports', Icon: ShieldIcon, badge: 'reportCount' },
   { id: 'sent', label: 'Sent', Icon: SendIcon },
   { id: 'trash', label: 'Trash', Icon: TrashIcon },
 ];
@@ -16,6 +25,7 @@ export default function Sidebar({
   onFolderChange,
   onCompose,
   onLogout,
+  reportCount = 0,
 }) {
   return (
     <>
@@ -55,18 +65,25 @@ export default function Sidebar({
         </button>
 
         <nav className="mt-7 space-y-1" aria-label="Mailboxes">
-          {FOLDERS.map(({ id, label, Icon }) => {
+          {FOLDERS.map(({ id, label, Icon, badge }) => {
             const active = activeFolder === id;
+            const count = badge === 'reportCount' ? reportCount : 0;
             return (
               <button
                 key={id}
                 type="button"
                 onClick={() => onFolderChange(id)}
-                className={`folder-link ${active ? 'is-active' : ''}`}
+                className={`folder-link ${active ? 'is-active' : ''} ${id === 'reports' ? 'folder-link--reports' : ''}`}
                 aria-current={active ? 'page' : undefined}
+                aria-label={count > 0 ? `${label}, ${count} active` : undefined}
               >
                 <Icon size={17} />
                 <span>{label}</span>
+                {count > 0 && (
+                  <span className="folder-link__badge" title={`${count} active ${count === 1 ? 'report' : 'reports'}`}>
+                    {count > 99 ? '99+' : count}
+                  </span>
+                )}
               </button>
             );
           })}

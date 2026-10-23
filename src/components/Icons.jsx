@@ -180,6 +180,43 @@ export function LockIcon(props) {
   );
 }
 
+export function ShieldIcon(props) {
+  return (
+    <Icon {...props}>
+      <path d="M12 3 5 6v5.5c0 4.2 2.9 7.6 7 9.5 4.1-1.9 7-5.3 7-9.5V6Z" />
+      <path d="M12 9v3.6" />
+      <path d="M12 16.2h.01" />
+    </Icon>
+  );
+}
+
+export function CopyIcon(props) {
+  return (
+    <Icon {...props}>
+      <rect x="9" y="9" width="11" height="11" rx="2.5" />
+      <path d="M15 5.5A2.5 2.5 0 0 0 12.5 3H6a2.5 2.5 0 0 0-2.5 2.5V12A2.5 2.5 0 0 0 6 14.5" />
+    </Icon>
+  );
+}
+
+export function ForwardIcon(props) {
+  return (
+    <Icon {...props}>
+      <path d="m14 5 6 6-6 6" />
+      <path d="M20 11h-7.5A5.5 5.5 0 0 0 7 16.5V19" />
+    </Icon>
+  );
+}
+
+export function CheckCheckIcon(props) {
+  return (
+    <Icon {...props}>
+      <path d="m3 12.5 3.6 3.6L13 9.7" />
+      <path d="m11.4 15.1 1 1L20.5 8" />
+    </Icon>
+  );
+}
+
 export function CheckIcon(props) {
   return (
     <Icon {...props} strokeWidth={2.4}>

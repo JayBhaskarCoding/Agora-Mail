@@ -357,6 +357,21 @@ function safeCodePoint(codepoint) {
   }
 }
 
+/**
+ * Drop the parts of an HTML document that look like content but are not:
+ * `<style>` rules and `<script>` bodies.
+ *
+ * Reading a body as text without this is how CSS leaks into the UI — a
+ * stylesheet's `@import` or `@media` looks exactly like a social handle, and
+ * a mail parser that greps for `@word` will happily report one as a person.
+ */
+export function stripStyleAndScript(html = '') {
+  return String(html || '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, ' ')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ');
+}
+
 /** Decode the HTML entities that survive into plain-text fields. */
 export function decodeEntities(value = '') {
   let text = String(value);

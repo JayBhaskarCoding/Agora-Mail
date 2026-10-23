@@ -62,6 +62,7 @@ src/
     LoginScreen.jsx     sign-in portal
     Sidebar.jsx         brand lockup, folders, account card
     EmailList.jsx       search, conversation rows, empty and loading states
+    ReportsList.jsx     the Reports tab: filter pills and report cards
     MailReader.jsx      conversation stack, inline reply, message actions
     ComposeModal.jsx    composer with attachments and focus trap
     ConfirmDialog.jsx   glass confirmation for destructive actions
@@ -72,6 +73,7 @@ src/
   lib/emailTheme.js     re-tones inbound HTML for the dark reading card
   lib/teaser.js         writes the inbox teaser (preheader) from a message
   lib/threads.js        conversation grouping, quote stripping, row previews
+  lib/reports.js        report metadata, grouping, status store, resolution mail
   lib/replyTarget.js    who a reply belongs to (moderation reports included)
   lib/selection.js      selection set arithmetic, ids behind a bulk action
   lib/mailTemplate.js   message fragment + text twin for the sender worker
@@ -155,6 +157,54 @@ test/
   *Reply to @ron* / *Replying to @ron*, and its placeholder follows. A report that
   prints no handle is labelled with an id-shaped form of the address (`@someone`),
   and the `To …` line underneath always keeps the real destination.
+- **Reports have a tab of their own.** A shield sits between Inbox and Sent, with a
+  badge counting the reports still *Active*. A message belongs to the moderation
+  pipeline when its subject carries `[Report:` or `Report ID:`, when it comes from
+  `Report by @…` or *Agora Moderation*, or when its body prints `MODERATION REPORT` /
+  `Report #`. Replies and resolutions inherit the claim through their normalised
+  subject, so the whole exchange is one conversation. Reports are filed **only** in
+  Reports: Inbox and Sent filter them out (Trash still shows them, because deleting is
+  a decision about the mail, not the report). The tab reads
+  `folder=in.(inbox,sent,trash)` so a settled report keeps its countdown wherever it
+  sits.
+- **A report is grouped by its Report ID, not its subject line.** `lib/reports.js` reads
+  the id from `Report ID:` / `Report #` in either body, falls back to the hidden
+  `AGORA_REPORT_ID` marker, and finally to a stable 8-character digest of the subject,
+  so a report without an id still groups. The list shows a card per report — `ID:
+  #2ace8130` (full id on hover and in the tooltip), a status pill (amber *Active*, emerald
+  *Resolved*, zinc *Closed*), the reason, `@reporter → post by @author`, the message
+  count, and `Resolved • Deletes in 1d 20h` once settled. `All / Active / Resolved /
+  Closed` pills filter it, and the search box reads the id, reason, both handles and the
+  reporter's address.
+- **The reporter is a person, never a stylesheet.** `extractReporterIdentity()` reads
+  `Report by (@…)` from the sender, `[Report: …] @…` from the subject, and `Name:` /
+  `User Tag:` / `Registered Email:` from the bodies — after `stripStyleAndScript()` has
+  removed every `<style>` and `<script>` and `replyTarget.js` has refused the reserved
+  at-rules (`@import`, `@media`, `@keyframes`, `@font-face`, `@supports`, `@charset`).
+  That was the `@import` bug: a CSS file at the top of `html_body` used to look like a
+  mention. The reader then names the reporter in the header
+  (`Jayvardhan Bhaskar (@jaybhaskar) · jayvardhanbhaskar123@gmail.com`) and in the reply
+  box (`Reply to @jaybhaskar (jayvardhanbhaskar123@gmail.com)`).
+- **The lifecycle lives in two places.** `localStorage["agora_report_statuses_v1"]`
+  keeps `{status, resolvedAt, closedAt}` per Report ID — plus an `updatedAt`, so a
+  reopen made here is not undone by the marker already inside the mail — while a hidden
+  `<!-- AGORA_REPORT_STATUS:RESOLVED:<timestamp> -->` comment inside a resolution email
+  carries the same fact to another device. `Resolve Report` sends that email through the
+  sender worker: `to` the reporter, `customFrom: mail@agora.in.net`, `senderName: Agora
+  Team`, subject `Re: [Report: …]`, preview
+  `Your Agora report (#2ace8130) has been reviewed and resolved by the Agora Team.`, and
+  an emerald-bordered `#161826` body that opens with the status and id markers. The
+  button reads *Resolving & notifying reporter…* while it runs, the sent copy appears at
+  the bottom of the report's stack, and the header shows
+  *This report has been marked as Resolved. It will be automatically deleted in 2 days.*
+  *Close Without Email* settles a report silently; *Reopen Report* puts it back; *Forward*
+  sits beside *Reply*.
+- **Resolved reports delete themselves after 48 hours.** A sweep on load and after every
+  fetch removes any resolved report whose `resolvedAt` is two days old — one
+  `DELETE /rest/v1/emails?id=in.(…)` for every message in the conversation, an optimistic
+  drop from the list, the on-screen resolution copy, and the stored status. Each id is
+  attempted once per session, so a failed delete is a toast rather than a request loop,
+  and a one-minute clock keeps the countdown honest while the tab sits open.
 - **Other mail replies where it asks.** `replyAddressFor()` in `lib/format.js` resolves
   a message's target in this order:
   1. `reply_to`, then `replyTo` — mailing lists, ticketing systems and no-reply senders

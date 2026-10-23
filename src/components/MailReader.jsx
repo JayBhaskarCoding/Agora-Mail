@@ -2,12 +2,17 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Avatar, Wordmark } from './Brand.jsx';
 import {
   ArrowLeftIcon,
+  CheckCheckIcon,
+  CheckIcon,
   ChevronDownIcon,
+  CopyIcon,
+  ForwardIcon,
   PaperclipIcon,
   PencilIcon,
   ReplyIcon,
   RestoreIcon,
   SendIcon,
+  ShieldIcon,
   Spinner,
   TrashIcon,
   XIcon,
@@ -26,6 +31,7 @@ import {
   resolveReplyEmail,
 } from '../lib/replyTarget.js';
 import { themeEmailHtml } from '../lib/emailTheme.js';
+import { STATUS_STYLES, describeRemaining, timeUntilDeletion } from '../lib/reports.js';
 import {
   extractMessageHtml,
   isOutgoingMessage,
@@ -79,6 +85,7 @@ function ThreadMessage({
   expanded,
   view,
   replyTo = '',
+  identity = null,
   onToggle,
   onViewChange,
   actions,
@@ -113,9 +120,15 @@ function ThreadMessage({
   const snippetText = messagePreview(email, 84);
 
   /* Who the card speaks for. Our own mail says so — an outgoing reply is never
-     dressed up as something that arrived. */
-  const who = outgoing ? 'You' : from.display;
-  const avatarName = from.display;
+     dressed up as something that arrived. A moderation report speaks for the
+     person who filed it, not for the robot that delivered it. */
+  const reportSender = Boolean(identity) && !outgoing && isModerationReport(email);
+  const who = outgoing
+    ? 'You'
+    : reportSender
+      ? identity.reporterName || identity.reporterTag || from.display
+      : from.display;
+  const avatarName = reportSender ? who : from.display;
   const toLabel = to.name || to.address;
   /* A reply does not always go back to the sender: a moderation report is
      answered at the reporter's address, so the card says where answers land
@@ -264,6 +277,14 @@ export default function MailReader({
   selfAddresses = [],
   label,
   busy,
+  report = null,
+  resolving = false,
+  onResolveReport,
+  onCloseReport,
+  onReopenReport,
+  onForwardReport,
+  onForward,
+  onCopyReportId,
   onReply,
   onSendReply,
   replyAddress = '',
@@ -318,6 +339,16 @@ export default function MailReader({
   /* The reporter behind a moderation report, read once per conversation. */
   const reportHandle = useMemo(() => reporterHandle(messages), [messages]);
 
+  /* A report is more than a thread: it has an id, a status and a clock. The
+     App groups and times it; these fallbacks keep the reader whole on its
+     own. */
+  const reportInfo = report?.meta || null;
+  const reportStatus = report?.status || '';
+  const reportBadge = STATUS_STYLES[reportStatus] || null;
+  /* Recomputed on every render: the App ticks a minute clock, and the banner's
+     countdown has to move with it. */
+  const reportRemaining = reportStatus === 'resolved' ? timeUntilDeletion(report?.resolvedAt) : 0;
+
   if (!thread || !latest) return <ReaderEmpty onCompose={onCompose} />;
 
   const allExpanded = messages.every((message) => expandedIds.includes(message.id));
@@ -362,8 +393,21 @@ export default function MailReader({
      answering a member, not a mailbox. Reports that print no handle fall back
      to an id-shaped form of the address rather than leaving it bare. */
   const replyLabel =
+    (reportInfo?.reporterTag && reportInfo?.reporterEmail
+      ? `${reportInfo.reporterTag} (${reportInfo.reporterEmail})`
+      : '') ||
     reportHandle ||
     (isModerationReport(replyTarget) && replyEmail ? `@${replyEmail.split('@')[0]}` : replyName);
+
+  /* What the header calls the conversation: the person who filed it, if the
+     report names them, rather than the noreply mailbox it arrived from. */
+  const reporterDisplay = reportInfo?.reporterName || reportInfo?.reporterTag || '';
+  const headerTitle = reporterDisplay
+    ? `${reporterDisplay}${reportInfo?.reporterEmail ? ` · ${reportInfo.reporterEmail}` : ''}`
+    : threadLabel;
+
+  /* The reporter's initials beat "Report by @ron" for the avatar. */
+  const bylineName = reporterDisplay || threadNames[0] || parseAddress(latest.from_address).display;
 
   const submitReply = async (event) => {
     event.preventDefault();
@@ -457,10 +501,85 @@ export default function MailReader({
             )}
           </div>
 
+          {reportInfo && (
+            <div className="report-bar glass glass-sheen">
+              <div className="report-bar__id">
+                <span className="report-bar__label">
+                  <ShieldIcon size={12} />
+                  Report ID
+                </span>
+                {/* The full id: this is the bar a moderator copies from. */}
+                <code className="report-bar__value" title={report?.reportId}>
+                  {report?.reportId}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => onCopyReportId?.(report?.reportId)}
+                  className="icon-btn !h-7 !w-7"
+                  aria-label="Copy the full Report ID"
+                  title={report?.reportId}
+                >
+                  <CopyIcon size={13} />
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                {reportBadge && (
+                  <span className={`report-card__status border ${reportBadge.className}`}>
+                    {reportStatus === 'active' && (
+                      <span className="report-card__pulse" aria-hidden="true" />
+                    )}
+                    {reportBadge.label}
+                  </span>
+                )}
+
+                {reportStatus === 'active' && (
+                  <button
+                    type="button"
+                    onClick={() => onResolveReport?.(report)}
+                    className="btn btn--primary btn--sm"
+                    disabled={resolving}
+                  >
+                    {resolving ? (
+                      <Spinner size={13} />
+                    ) : (
+                      <CheckCheckIcon size={13} />
+                    )}
+                    {resolving ? 'Resolving & notifying reporter…' : 'Resolve Report'}
+                  </button>
+                )}
+
+                {reportStatus === 'active' && (
+                  <button
+                    type="button"
+                    onClick={() => onCloseReport?.(report)}
+                    className="btn btn--ghost btn--sm"
+                    disabled={resolving}
+                  >
+                    <XIcon size={13} />
+                    Close Without Email
+                  </button>
+                )}
+
+                {reportStatus !== 'active' && (
+                  <button
+                    type="button"
+                    onClick={() => onReopenReport?.(report)}
+                    className="btn btn--ghost btn--sm"
+                    disabled={resolving}
+                  >
+                    <RestoreIcon size={13} />
+                    Reopen Report
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="mail-byline">
-            <Avatar name={threadNames[0] || parseAddress(latest.from_address).display} size="md" />
+            <Avatar name={bylineName} size="md" />
             <div className="min-w-0">
-              <p className="truncate text-[0.82rem] font-semibold text-ink">{threadLabel}</p>
+              <p className="truncate text-[0.82rem] font-semibold text-ink">{headerTitle}</p>
               <p className="truncate text-[0.7rem] text-muted">
                 {thread.count} {thread.count === 1 ? 'message' : 'messages'} · last activity{' '}
                 {formatListTime(latest.created_at)}
@@ -476,6 +595,15 @@ export default function MailReader({
                 >
                   <ReplyIcon size={14} />
                   Reply
+                </button>
+                <button
+                  type="button"
+                  onClick={() => (onForwardReport ? onForwardReport(report) : onForward?.(latest))}
+                  className="btn btn--ghost btn--sm"
+                  disabled={busy}
+                >
+                  <ForwardIcon size={14} />
+                  Forward
                 </button>
                 {/* One decision for the whole conversation: every message in
                     the thread moves, on both sides of the dialogue. */}
@@ -495,6 +623,19 @@ export default function MailReader({
           </div>
         </header>
 
+        {reportStatus === 'resolved' && (
+          <div className="report-banner glass glass-sheen mt-4" role="status">
+            <span className="report-banner__check" aria-hidden="true">
+              <CheckIcon size={14} />
+            </span>
+            <p className="text-[0.8rem] leading-relaxed text-ink">
+              <strong>This report has been marked as Resolved.</strong> It will be automatically
+              deleted in{' '}
+              <span className="report-banner__time">{describeRemaining(reportRemaining)}</span>.
+            </p>
+          </div>
+        )}
+
         <div className="thread-stack mt-4">
           {messages.map((email) => (
             <ThreadMessage
@@ -504,6 +645,7 @@ export default function MailReader({
               expanded={expandedIds.includes(email.id)}
               view={views[email.id] || 'rendered'}
               replyTo={replyTargets.get(email.id) || ''}
+              identity={reportInfo}
               onToggle={() => toggleMessage(email.id)}
               onViewChange={(next) => setViews((current) => ({ ...current, [email.id]: next }))}
               actions={messageActions(email)}

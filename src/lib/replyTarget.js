@@ -16,6 +16,7 @@ import {
   extractEmailAddress,
   isNoReplyAddress,
   replyAddressFor,
+  stripStyleAndScript,
 } from './format.js';
 
 /* The spec's patterns, kept as sources so every scan starts from zero. */
@@ -37,10 +38,38 @@ const REPORTED_BY =
    `jay@example.com` has a word character before it and a domain after it. */
 const ANY_HANDLE = /(?:^|[^\w.%+-])@([A-Za-z0-9_][A-Za-z0-9._-]{1,29})(?![\w@]|\.[A-Za-z]{2,})/;
 
-/** A body as plain text: tags become spaces, entities resolve. */
+/* CSS at-rules look exactly like handles. They are never a person, even when
+   a stray rule survives the scrub — `@import` and `@media` are the ones that
+   used to be printed as a moderator's name. */
+const CSS_AT_RULES = new Set([
+  'import',
+  'media',
+  'keyframes',
+  'font-face',
+  'supports',
+  'charset',
+  'namespace',
+  'page',
+  'layer',
+  'container',
+  'property',
+  'document',
+  'viewport',
+]);
+
+/**
+ * A body as plain text: styles and scripts removed first, then tags become
+ * spaces and entities resolve.
+ *
+ * The scrub is the whole point: matching a handle against raw HTML finds
+ * `@import` inside a `<style>` block, and the reply box then offers to reply
+ * to a CSS rule. This is the `@import` bug's fix, at its source.
+ */
 function textOf(body) {
-  return decodeEntities(String(body).replace(/<[^>]+>/g, ' '));
+  return decodeEntities(stripStyleAndScript(String(body)).replace(/<[^>]+>/g, ' '));
 }
+
+const isCssAtRule = (handle = '') => CSS_AT_RULES.has(handle.replace(/^@/, '').toLowerCase());
 
 const tidyHandle = (value = '') => `@${String(value).replace(/[._-]+$/, '')}`;
 
@@ -135,13 +164,13 @@ export function reporterHandle(messages = []) {
 
   for (const body of bodies) {
     const named = body.match(REPORTED_BY);
-    if (named) return tidyHandle(named[1]);
+    if (named && !isCssAtRule(named[1])) return tidyHandle(named[1]);
   }
 
   /* A template that words it differently still names the handle somewhere. */
   for (const body of bodies) {
     const loose = body.match(ANY_HANDLE);
-    if (loose) return tidyHandle(loose[1]);
+    if (loose && !isCssAtRule(loose[1])) return tidyHandle(loose[1]);
   }
 
   return '';

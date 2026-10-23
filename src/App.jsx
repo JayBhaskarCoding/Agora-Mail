@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import LoginScreen from './components/LoginScreen.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import EmailList from './components/EmailList.jsx';
+import ReportsList from './components/ReportsList.jsx';
 import MailReader from './components/MailReader.jsx';
 import ComposeModal from './components/ComposeModal.jsx';
 import ConfirmDialog from './components/ConfirmDialog.jsx';
@@ -12,8 +13,20 @@ import { MenuIcon, PencilIcon } from './components/Icons.jsx';
 import { extractEmailAddress } from './lib/format.js';
 import { buildMessageBody, buildMessageText } from './lib/mailTemplate.js';
 import { generateAutoTeaser } from './lib/teaser.js';
-import { groupIntoThreads, replySubject, threadKeyFor } from './lib/threads.js';
+import { groupIntoThreads, normaliseSubject, replySubject, threadKeyFor } from './lib/threads.js';
 import { resolveReplyEmail } from './lib/replyTarget.js';
+import {
+  buildResolutionEmailHtml,
+  buildResolutionEmailText,
+  groupIntoReportThreads,
+  isDueForDeletion,
+  isReportRelated,
+  loadReportStatuses,
+  resolutionPreview,
+  resolutionRecipient,
+  reportSubjectKeys,
+  saveReportStatuses,
+} from './lib/reports.js';
 import {
   messageIdsForThreads,
   pruneKeys,
@@ -40,7 +53,7 @@ const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
 const POLL_INTERVAL_MS = 10000;
 
-const FOLDER_LABELS = { inbox: 'Inbox', sent: 'Sent', trash: 'Trash' };
+const FOLDER_LABELS = { inbox: 'Inbox', reports: 'Reports', sent: 'Sent', trash: 'Trash' };
 
 function readStoredSession() {
   try {
@@ -78,6 +91,20 @@ export default function AgoraMail() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  /* ---- Reports ------------------------------------------------------- */
+  /* Statuses are stored per Report ID, and every resolved report also carries
+     a marker inside the mail itself, so a resolution made on another device
+     reaches this browser with the message. */
+  const [reportStatuses, setReportStatuses] = useState(() =>
+    loadReportStatuses(typeof window === 'undefined' ? null : window.localStorage),
+  );
+  const [reportFilter, setReportFilter] = useState('all');
+  const [resolvingReportId, setResolvingReportId] = useState('');
+  /* The resolution email is sent through the worker and stored by the server;
+     this keeps a copy on screen until the next read brings the real one. */
+  const [reportOverlay, setReportOverlay] = useState([]);
+  const [reportClock, setReportClock] = useState(() => Date.now());
   /* Conversations ticked in the list, by thread key. A conversation is the
      unit the list shows, so it is also the unit a bulk action takes. */
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
@@ -204,11 +231,14 @@ export default function AgoraMail() {
       /* A conversation is both sides of the dialogue. Loading Inbox or Sent
          therefore loads both pools in one query — `folder=in.(inbox,sent)` —
          so a thread opened from either list carries the sent replies and the
-         incoming answers together. Trash is its own pool. */
+         incoming answers together. Trash is its own pool. Reports also claim
+         Trash, so a settled report keeps its countdown wherever it sat. */
       const scope =
-        activeFolder === 'inbox' || activeFolder === 'sent'
-          ? 'in.(inbox,sent)'
-          : `eq.${activeFolder}`;
+        activeFolder === 'trash'
+          ? 'eq.trash'
+          : activeFolder === 'reports'
+            ? 'in.(inbox,sent,trash)'
+            : 'in.(inbox,sent)';
 
       try {
         const response = await fetch(
@@ -259,9 +289,11 @@ export default function AgoraMail() {
     setSelectedThreadKey(thread.key);
 
     /* Opening a conversation reads it, as Gmail does: every unread message in
-       the thread is marked — including any a search is currently hiding. */
-    const unread = emails.filter(
-      (email) => !email.is_read && email.folder === 'inbox' && threadKeyFor(email.subject) === thread.key,
+       the thread is marked — including any a search is currently hiding. A
+       report thread is keyed by its Report ID, not its subject, so the
+       unread messages are taken from the thread itself. */
+    const unread = (thread.emails || []).filter(
+      (email) => email && !email.is_read && (email.folder || 'inbox') === 'inbox',
     );
     if (unread.length === 0) return;
 
@@ -298,8 +330,9 @@ export default function AgoraMail() {
       return;
     }
 
-    /* Inbox and Sent share one pool, so switching between them keeps the rows
-       on screen while the list re-filters. Trash has its own pool. */
+    /* Inbox and Sent read the same pool, so switching between them keeps the
+       rows on screen while the list re-filters. Trash and Reports have their
+       own scopes and reload. */
     const shared =
       (folder === 'inbox' || folder === 'sent') &&
       (activeFolder === 'inbox' || activeFolder === 'sent');
@@ -562,21 +595,270 @@ export default function AgoraMail() {
     });
   };
 
+  /* ---- Report lifecycle ---------------------------------------------- */
+
+  const rememberReportStatus = useCallback((reportId, patch) => {
+    setReportStatuses((current) => ({
+      ...current,
+      [reportId]: {
+        status: 'active',
+        resolvedAt: 0,
+        closedAt: 0,
+        ...(current?.[reportId] || {}),
+        ...patch,
+        updatedAt: Date.now(),
+      },
+    }));
+  }, []);
+
+  /** Persist statuses as they change; a private window may refuse. */
+  useEffect(() => {
+    saveReportStatuses(typeof window === 'undefined' ? null : window.localStorage, reportStatuses);
+  }, [reportStatuses]);
+
+  /* Re-render the countdowns once a minute, so "Deletes in 47h" is true. */
+  useEffect(() => {
+    const interval = window.setInterval(() => setReportClock(Date.now()), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  /** Copy a full Report ID for pasting into a ticket or a chat. */
+  const copyReportId = async (reportId) => {
+    try {
+      await navigator.clipboard.writeText(reportId);
+      pushToast('Report ID copied.', 'success');
+    } catch {
+      pushToast('Couldn’t copy the Report ID. Select it instead.', 'error');
+    }
+  };
+
+  /**
+   * Send the resolution email to the reporter.
+   *
+   * It goes through the same worker as every other message — the markers in
+   * the HTML are what carry the new status to another device, and the copy on
+   * screen is replaced by the stored one on the next read.
+   */
+  const resolveReport = async (report) => {
+    if (!report || resolvingReportId) return;
+
+    /* The reporter's address is normally in the report's own metadata; a
+       report written in a shape we do not know still resolves through the
+       same body-reading resolver a reply uses. Our own mailboxes never
+       qualify, so a failed read cannot mail us about ourselves. */
+    const discovered = extractEmailAddress(
+      resolveReplyEmail(report.latest, report.emails || [], { selfAddresses }),
+    );
+    const recipient =
+      resolutionRecipient(report) ||
+      (selfAddresses.some(
+        (address) => extractEmailAddress(address).toLowerCase() === discovered.toLowerCase(),
+      )
+        ? ''
+        : discovered);
+
+    if (!recipient) {
+      pushToast('This report names no address to notify.', 'error');
+      return;
+    }
+
+    const meta = report.meta || {};
+    const now = Date.now();
+    const html = buildResolutionEmailHtml({
+      reportId: report.reportId,
+      reason: meta.reason,
+      reporterName: meta.reporterName,
+      reporterTag: meta.reporterTag,
+      authorTag: meta.authorTag,
+      now,
+    });
+    const text = buildResolutionEmailText({
+      reportId: report.reportId,
+      reason: meta.reason,
+      reporterName: meta.reporterName,
+      reporterTag: meta.reporterTag,
+      authorTag: meta.authorTag,
+    });
+
+    setResolvingReportId(report.reportId);
+
+    try {
+      const response = await fetch(MAIL_SENDER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: recipient,
+          subject: `Re: ${report.subject}`,
+          previewText: resolutionPreview(report.shortId),
+          html,
+          text,
+          customFrom: SENDER_ADDRESS,
+          senderName: 'Agora Team',
+          attachments: [],
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || `Sender rejected the message (${response.status})`);
+      }
+
+      rememberReportStatus(report.reportId, { status: 'resolved', resolvedAt: now, closedAt: 0 });
+
+      /* The stored copy arrives with the next read; until then the thread
+         shows what was sent, in the place it belongs. */
+      setReportOverlay((current) => [
+        ...current.filter((email) => email.id !== `local-resolution-${report.reportId}`),
+        {
+          id: `local-resolution-${report.reportId}`,
+          folder: 'sent',
+          subject: `Re: ${report.subject}`,
+          from_address: 'Agora Team <mail@agora.in.net>',
+          to_address: recipient,
+          preview_text: resolutionPreview(report.shortId),
+          html_body: html,
+          text_body: text,
+          created_at: new Date(now).toISOString(),
+          is_read: true,
+          attachments: [],
+        },
+      ]);
+
+      pushToast('Report resolved and the reporter notified.', 'success');
+      fetchEmails({ silent: true });
+    } catch (error) {
+      console.error('Unable to resolve the report:', error);
+      pushToast('Couldn’t notify the reporter. The report is still active.', 'error');
+    } finally {
+      setResolvingReportId('');
+    }
+  };
+
+  /** Close a report without writing to anyone. */
+  const closeReport = (report) => {
+    if (!report) return;
+    rememberReportStatus(report.reportId, { status: 'closed', closedAt: Date.now() });
+    pushToast('Report closed.', 'success');
+  };
+
+  /** Put a report back in the queue. */
+  const reopenReport = (report) => {
+    if (!report) return;
+    rememberReportStatus(report.reportId, { status: 'active', resolvedAt: 0, closedAt: 0 });
+    pushToast('Report reopened.', 'success');
+  };
+
+  /** Forward a report, keeping it in the same Report ID conversation. */
+  const forwardReport = (report) => {
+    if (!report?.latest) return;
+    openCompose({ replyTo: report.latest, thread: report, forward: true });
+  };
+
+  /**
+   * Delete every message of a report after its two days are up.
+   *
+   * The resolved copy we keep on screen goes too, so nothing is left to click.
+   */
+  const purgeReport = useCallback(
+    async (report) => {
+      if (!report) return;
+
+      const ids = (report.emails || [])
+        .map((email) => email.id)
+        .filter((id) => id !== undefined && id !== null && !String(id).startsWith('local-'));
+
+      try {
+        if (ids.length > 0) {
+          const response = await fetch(
+            `${SUPABASE_URL}/rest/v1/emails?id=in.(${ids.join(',')})`,
+            {
+              method: 'DELETE',
+              headers: {
+                apikey: SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${session?.access_token}`,
+              },
+            },
+          );
+
+          if (response.status === 401) {
+            handleLogout({ expired: true });
+            return;
+          }
+          if (!response.ok) throw new Error(`Delete failed (${response.status})`);
+        }
+
+        setEmails((current) => {
+          const removed = new Set(ids);
+          return current.filter((email) => !removed.has(email.id));
+        });
+        setReportOverlay((current) =>
+          current.filter((email) => email.id !== `local-resolution-${report.reportId}`),
+        );
+        setReportStatuses((current) => {
+          const next = { ...current };
+          delete next[report.reportId];
+          return next;
+        });
+        setSelectedThreadKey((current) => (current === report.key ? null : current));
+        pushToast(
+          `Report #${report.shortId} was deleted two days after it was resolved.`,
+          'success',
+        );
+        fetchEmails({ silent: true });
+      } catch (error) {
+        console.error('Unable to delete the resolved report:', error);
+        pushToast('Couldn’t delete the resolved report. It will be retried.', 'error');
+      }
+    },
+    [session?.access_token, handleLogout, pushToast, fetchEmails],
+  );
+
+  /* Drop the on-screen resolution copy once the server's own copy arrives. */
+  useEffect(() => {
+    if (reportOverlay.length === 0) return;
+
+    setReportOverlay((current) => {
+      const next = current.filter((overlay) => {
+        const subject = normaliseSubject(overlay.subject).toLowerCase();
+        return !emails.some(
+          (email) =>
+            normaliseSubject(email.subject).toLowerCase() === subject &&
+            String(email.folder || '') === 'sent' &&
+            Math.abs(Date.parse(email.created_at) - Date.parse(overlay.created_at)) < 5 * 60 * 1000,
+        );
+      });
+      /* Keep the same array when nothing moved: this effect depends on it. */
+      return next.length === current.length ? current : next;
+    });
+  }, [emails, reportOverlay]);
+
   /* ---- Composing ----------------------------------------------------- */
 
-  const openCompose = ({ replyTo = null, thread = null } = {}) => {
+  const openCompose = ({ replyTo = null, thread = null, forward = false } = {}) => {
     setReplyingTo(replyTo);
 
     /* A moderation report is addressed to the reporter named inside it, not
        to the noreply mailbox it arrived from; everything else answers to its
        sender (or, when we wrote it, its recipient). Resolving against the
-       conversation lets the report still be found once it has been answered. */
-    const target = replyTo
-      ? resolveReplyEmail(replyTo, thread?.emails || [replyTo], { selfAddresses })
-      : '';
+       conversation lets the report still be found once it has been answered.
+       A forward is a new conversation, so it starts without a recipient. */
+    const target = !replyTo
+      ? ''
+      : forward
+        ? ''
+        : thread?.meta?.reporterEmail ||
+          resolveReplyEmail(replyTo, thread?.emails || [replyTo], { selfAddresses });
     setReplyTargetAddress(target);
-    setTo(extractEmailAddress(target));
-    setSubject(replyTo ? replySubject(replyTo.subject) : '');
+    setTo(forward ? '' : extractEmailAddress(target));
+    /* `Fwd:` keeps the report subject, so the forward is filed under the same
+       Report ID as the report it forwards. */
+    setSubject(
+      replyTo
+        ? forward
+          ? `Fwd: ${normaliseSubject(replyTo.subject)}`
+          : replySubject(replyTo.subject)
+        : '',
+    );
     setBody('');
     setAttachments([]);
     setSendError('');
@@ -778,16 +1060,39 @@ export default function AgoraMail() {
 
   /* ---- Derived ------------------------------------------------------- */
 
+  /* Anything fetched plus the resolution copy we are showing until the server
+     hands the real one back. */
+  const pool = useMemo(
+    () => (reportOverlay.length === 0 ? emails : [...emails, ...reportOverlay]),
+    [emails, reportOverlay],
+  );
+
   /* Every conversation in the pool — both sides of the dialogue. */
-  const threads = useMemo(() => groupIntoThreads(emails), [emails]);
+  const threads = useMemo(() => groupIntoThreads(pool), [pool]);
+
+  /* Which subjects belong to the moderation pipeline. Inbox and Sent use this
+     to keep report conversations out of the way; the Reports tab uses it to
+     claim them. */
+  const reportKeys = useMemo(() => reportSubjectKeys(pool), [pool]);
+
+  const reportThreads = useMemo(
+    () =>
+      groupIntoReportThreads(
+        pool.filter((email) => isReportRelated(email, reportKeys)),
+        { statuses: reportStatuses, now: reportClock },
+      ),
+    [pool, reportKeys, reportStatuses, reportClock],
+  );
 
   /* The list shows the conversations that have a message in the open folder;
-     the reader still gets the whole thread. */
+     the reader still gets the whole thread. Reports are only listed in their
+     own tab, and Trash keeps everything it holds. */
   const visibleThreads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
     return threads.filter((thread) => {
       if (!thread.folders?.[activeFolder]) return false;
+      if (activeFolder !== 'trash' && reportKeys.has(threadKeyFor(thread.subject))) return false;
       if (!query) return true;
 
       return thread.emails.some((email) =>
@@ -796,24 +1101,74 @@ export default function AgoraMail() {
         ),
       );
     });
-  }, [threads, activeFolder, searchQuery]);
+  }, [threads, activeFolder, searchQuery, reportKeys]);
+
+  /* The Reports tab: filtered by status and by the same search box. */
+  const visibleReports = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    return reportThreads.filter((report) => {
+      if (reportFilter !== 'all' && report.status !== reportFilter) return false;
+      if (!query) return true;
+
+      const meta = report.meta || {};
+      return [
+        report.subject,
+        report.reportId,
+        meta.reason,
+        meta.reporterTag,
+        meta.reporterName,
+        meta.reporterEmail,
+        meta.authorTag,
+      ].some((field) => String(field || '').toLowerCase().includes(query));
+    });
+  }, [reportThreads, reportFilter, searchQuery]);
+
+  /* The 48-hour sweep: whenever a report settles and its two days run out, the
+     conversation is removed — here, and on the server. Each id is attempted
+     once per session, so a failure does not become a request loop, and the
+     clock below wakes the sweep even when nothing is being fetched. */
+  const purgedReports = useRef(new Set());
+
+  useEffect(() => {
+    const due = reportThreads.filter(
+      (report) =>
+        !purgedReports.current.has(report.reportId) &&
+        isDueForDeletion({ status: report.status, resolvedAt: report.resolvedAt }, reportClock),
+    );
+    if (due.length === 0) return;
+
+    due.forEach((report) => purgedReports.current.add(report.reportId));
+    due.forEach((report) => purgeReport(report));
+  }, [reportThreads, reportClock, purgeReport]);
+
+  const activeReportCount = useMemo(
+    () => reportThreads.filter((report) => report.status === 'active').length,
+    [reportThreads],
+  );
+
+  const selectedReport = useMemo(
+    () => reportThreads.find((report) => report.key === selectedThreadKey) || null,
+    [reportThreads, selectedThreadKey],
+  );
 
   const selectedThread = useMemo(
-    () => threads.find((thread) => thread.key === selectedThreadKey) || null,
-    [threads, selectedThreadKey],
+    () =>
+      selectedReport || threads.find((thread) => thread.key === selectedThreadKey) || null,
+    [selectedReport, threads, selectedThreadKey],
   );
 
   /* The writer for the open conversation: the reporter behind a moderation
      report, or the person on the other side of an ordinary thread. Resolved
      once here so the reader's To line, its Reply button and the message that
      is sent all come from the same answer. */
-  const resolvedReplyAddress = useMemo(
-    () =>
-      selectedThread
-        ? resolveReplyEmail(selectedThread.latest, selectedThread.emails, { selfAddresses })
-        : '',
-    [selectedThread, selfAddresses],
-  );
+  const resolvedReplyAddress = useMemo(() => {
+    if (!selectedThread) return '';
+    /* A report names its reporter explicitly, so that beats the generic
+       resolver — it is the address the resolution email will also use. */
+    if (selectedReport?.meta?.reporterEmail) return selectedReport.meta.reporterEmail;
+    return resolveReplyEmail(selectedThread.latest, selectedThread.emails, { selfAddresses });
+  }, [selectedThread, selectedReport, selfAddresses]);
 
   /* A selection is a set of thread keys; everything below turns it into the
      conversations and message ids the bulk actions operate on. */
@@ -1034,6 +1389,7 @@ export default function AgoraMail() {
           onFolderChange={changeFolder}
           onCompose={() => openCompose()}
           onLogout={() => handleLogout()}
+          reportCount={activeReportCount}
         />
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -1070,8 +1426,24 @@ export default function AgoraMail() {
               className={`list-pane min-h-0 w-full flex-col border-r border-line/10 md:w-[21rem] md:flex-none xl:w-[23rem] ${
                 selectedThread ? 'hidden md:flex' : 'flex'
               }`}
-              aria-label={`${folderLabel} messages`}
+              aria-label={activeFolder === 'reports' ? 'Reports' : `${folderLabel} messages`}
             >
+              {activeFolder === 'reports' ? (
+                <ReportsList
+                  label={folderLabel}
+                  threads={visibleReports}
+                  loading={loading}
+                  selectedId={selectedThreadKey}
+                  searchQuery={searchQuery}
+                  onSearchChange={changeSearch}
+                  onSelect={handleSelectThread}
+                  onRefresh={() => fetchEmails()}
+                  onClearSearch={() => changeSearch('')}
+                  filter={reportFilter}
+                  onFilterChange={setReportFilter}
+                  now={reportClock}
+                />
+              ) : (
               <EmailList
                 folder={activeFolder}
                 label={folderLabel}
@@ -1097,6 +1469,7 @@ export default function AgoraMail() {
                 onRestoreSelected={restoreSelected}
                 onDeleteSelected={requestDeleteSelected}
               />
+              )}
             </section>
 
             <section
@@ -1112,7 +1485,19 @@ export default function AgoraMail() {
                 folder={activeFolder}
                 label={folderLabel}
                 busy={busy}
-                onReply={(email) => openCompose({ replyTo: email, thread: selectedThread })}
+                report={selectedReport}
+                resolving={resolvingReportId === selectedReport?.reportId}
+                onResolveReport={resolveReport}
+                onCloseReport={closeReport}
+                onReopenReport={reopenReport}
+                onForwardReport={forwardReport}
+                onForward={(email) =>
+                  openCompose({ replyTo: email, thread: selectedThread, forward: true })
+                }
+                onCopyReportId={copyReportId}
+                onReply={(email) =>
+                  openCompose({ replyTo: email, thread: selectedThread })
+                }
                 onSendReply={handleInlineReply}
                 replyAddress={resolvedReplyAddress}
                 onTrash={(email) => updateEmailFolder(email, 'trash')}
