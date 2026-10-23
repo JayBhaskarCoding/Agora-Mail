@@ -20,7 +20,11 @@ import {
   plainBody,
   sanitizeEmailHtml,
 } from '../lib/format.js';
-import { resolveReplyEmail } from '../lib/replyTarget.js';
+import {
+  isModerationReport,
+  reporterHandle,
+  resolveReplyEmail,
+} from '../lib/replyTarget.js';
 import { themeEmailHtml } from '../lib/emailTheme.js';
 import {
   extractMessageHtml,
@@ -311,6 +315,9 @@ export default function MailReader({
     return found;
   }, [messages, selfAddresses]);
 
+  /* The reporter behind a moderation report, read once per conversation. */
+  const reportHandle = useMemo(() => reporterHandle(messages), [messages]);
+
   if (!thread || !latest) return <ReaderEmpty onCompose={onCompose} />;
 
   const allExpanded = messages.every((message) => expandedIds.includes(message.id));
@@ -349,6 +356,14 @@ export default function MailReader({
     (replyEmail.toLowerCase() !== senderAddress.toLowerCase()
       ? replyEmail.split('@')[0]
       : replyMailbox.display);
+
+  /* A moderation report names a person rather than an address: `Report by
+     @ron`. That handle is what the reply box should say, so a moderator is
+     answering a member, not a mailbox. Reports that print no handle fall back
+     to an id-shaped form of the address rather than leaving it bare. */
+  const replyLabel =
+    reportHandle ||
+    (isModerationReport(replyTarget) && replyEmail ? `@${replyEmail.split('@')[0]}` : replyName);
 
   const submitReply = async (event) => {
     event.preventDefault();
@@ -502,7 +517,7 @@ export default function MailReader({
               <form onSubmit={submitReply}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="micro">Replying to {replyName}</p>
+                    <p className="micro">Replying to {replyLabel}</p>
                     <p className="mt-1 truncate text-[0.72rem] text-muted">
                       To {replyEmail} · {replySubject(latest.subject)}
                     </p>
@@ -522,7 +537,7 @@ export default function MailReader({
                   rows={4}
                   value={replyBody}
                   onChange={(event) => setReplyBody(event.target.value)}
-                  placeholder={`Reply to ${replyName}…`}
+                  placeholder={`Reply to ${replyLabel}…`}
                   className="field-control field-control--area mt-3"
                   aria-label="Reply message"
                 />
@@ -560,7 +575,7 @@ export default function MailReader({
                 disabled={busy}
               >
                 <ReplyIcon size={15} />
-                <span className="truncate">Reply to {replyName}</span>
+                <span className="truncate">Reply to {replyLabel}</span>
               </button>
             )}
           </section>

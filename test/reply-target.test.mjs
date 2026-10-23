@@ -4,7 +4,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isModerationReport, resolveReplyEmail } from '../src/lib/replyTarget.js';
+import {
+  isModerationReport,
+  reporterHandle,
+  resolveReplyEmail,
+} from '../src/lib/replyTarget.js';
 
 const SELF = ['mail@agora.in.net', 'jay@agora.in.net'];
 
@@ -138,4 +142,64 @@ test('HTML-escaped bodies are read the same way', () => {
 test('a missing message resolves to nothing rather than throwing', () => {
   assert.equal(resolveReplyEmail(null, []), '');
   assert.equal(resolveReplyEmail(undefined), '');
+});
+
+/* ---- the reporter's id ------------------------------------------------- */
+
+test('a report names its reporter by handle', () => {
+  assert.equal(reporterHandle([report()]), '@ron');
+  assert.equal(
+    reporterHandle([
+      report({
+        html_body: '<p>Report by <strong>@max_dev</strong></p>',
+        text_body: 'Report by @max_dev',
+      }),
+    ]),
+    '@max_dev',
+  );
+  /* A trailing full stop is punctuation, not part of the handle. */
+  assert.equal(
+    reporterHandle([
+      report({ html_body: '', text_body: 'Report by @ron. Registered Email: a@b.com' }),
+    ]),
+    '@ron',
+  );
+});
+
+test('the handle is found without the usual wording, but never inside an email', () => {
+  const addressed = report({
+    html_body: '<p>Registered Email: someone@example.com</p>',
+    text_body: 'Registered Email: someone@example.com',
+  });
+  assert.equal(reporterHandle([addressed]), '', 'an address is not a handle');
+
+  const mention = report({
+    html_body: '<p>Report by @ron</p><p>Thanks @agora</p>',
+    text_body: '',
+  });
+  assert.equal(reporterHandle([mention]), '@ron');
+});
+
+test('a handle is looked for across the conversation', () => {
+  const answer = {
+    id: 's1',
+    folder: 'sent',
+    subject: 'Re: [Report: harassment]',
+    from_address: 'jay@agora.in.net',
+    to_address: 'noreply@agora.in.net',
+    text_body: 'Thanks, we are looking into it.',
+    html_body: '<p>Thanks, we are looking into it.</p>',
+  };
+  assert.equal(reporterHandle([answer, report()]), '@ron');
+});
+
+test('ordinary mail has no reporter handle', () => {
+  assert.equal(
+    reporterHandle([
+      { folder: 'inbox', from_address: 'Meera <meera@example.com>', subject: 'Lunch', html_body: '<p>Hi @ron</p>' },
+    ]),
+    '',
+  );
+  assert.equal(reporterHandle([]), '');
+  assert.equal(reporterHandle(), '');
 });

@@ -29,6 +29,21 @@ const SYSTEM_ADDRESSES = new Set(['mail@agora.in.net', 'noreply@agora.in.net']);
 
 const REPORT_SUBJECT = /^\s*\[report:/i;
 
+/* The handle a report names for the reporter — `Report by @ron`. */
+const REPORTED_BY =
+  /\b(?:report(?:ed)?\s+by|reporter(?:\s+handle)?)\s*:?\s*@([A-Za-z0-9_][A-Za-z0-9._-]{0,29})/i;
+
+/* Any standalone `@handle`, but never the `@` inside an email address:
+   `jay@example.com` has a word character before it and a domain after it. */
+const ANY_HANDLE = /(?:^|[^\w.%+-])@([A-Za-z0-9_][A-Za-z0-9._-]{1,29})(?![\w@]|\.[A-Za-z]{2,})/;
+
+/** A body as plain text: tags become spaces, entities resolve. */
+function textOf(body) {
+  return decodeEntities(String(body).replace(/<[^>]+>/g, ' '));
+}
+
+const tidyHandle = (value = '') => `@${String(value).replace(/[._-]+$/, '')}`;
+
 /** A message that came from the moderation pipeline rather than a person. */
 export function isModerationReport(message) {
   if (!message) return false;
@@ -100,6 +115,36 @@ function reporterFromThread(messages, { selfAddresses = [] } = {}) {
 
   /* The moderator's own mailbox is not the reporter; prefer anyone else. */
   return usable.find((address) => !self.has(address)) || usable[0] || '';
+}
+
+/**
+ * The reporter's account handle, as the report itself prints it.
+ *
+ * `Report by @ron` is the one line in a moderation report that names a
+ * person, so it is what the reply box shows instead of an address. Returns ''
+ * for anything that is not a report, or a report that names no handle — the
+ * caller then falls back to the usual name.
+ *
+ * @param {object|Array} messages a message, or a conversation to search
+ */
+export function reporterHandle(messages = []) {
+  const list = (Array.isArray(messages) ? messages : [messages]).filter(Boolean);
+  if (!list.some(isModerationReport)) return '';
+
+  const bodies = list.flatMap(bodiesOf).map(textOf);
+
+  for (const body of bodies) {
+    const named = body.match(REPORTED_BY);
+    if (named) return tidyHandle(named[1]);
+  }
+
+  /* A template that words it differently still names the handle somewhere. */
+  for (const body of bodies) {
+    const loose = body.match(ANY_HANDLE);
+    if (loose) return tidyHandle(loose[1]);
+  }
+
+  return '';
 }
 
 /**

@@ -150,6 +150,11 @@ test/
   box prints `To jayvardhanbhaskar123@gmail.com` and posts to exactly that address;
   and the message card reads `noreply@agora.in.net • Reply-To:
   jayvardhanbhaskar123@gmail.com`, so the reroute is visible before the reply starts.
+  The reply box is *labelled* with the reporter's handle instead of an address,
+  because a moderator is answering a member: `Report by @ron` makes it read
+  *Reply to @ron* / *Replying to @ron*, and its placeholder follows. A report that
+  prints no handle is labelled with an id-shaped form of the address (`@someone`),
+  and the `To …` line underneath always keeps the real destination.
 - **Other mail replies where it asks.** `replyAddressFor()` in `lib/format.js` resolves
   a message's target in this order:
   1. `reply_to`, then `replyTo` — mailing lists, ticketing systems and no-reply senders
